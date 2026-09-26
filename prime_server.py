@@ -417,7 +417,7 @@ try{
 </head>
 <body>
 <div class="wrap">
-<h1>PRIME</h1><div class="sub">Personal Response &amp; Intelligence Management Engine V16.7</div>
+<h1>PRIME</h1><div class="sub">Personal Response &amp; Intelligence Management Engine V16.9</div>
 <div id="screenLinkPanel" class="panel screen-link" style="display:none"><b>휴대폰 화면 연동</b><div id="screenLinkState">PRIME 화면이 이 휴대폰에 표시되고 있습니다.</div><button onclick="exitScreenLink()">화면 연동 해제</button></div>
 <div class="panel"><b>기기 제어</b><div id="deviceState" class="small">휴대폰을 PRIME의 제어 브리지로 사용할 수 있습니다.</div><button onclick="deviceShortcut('tv_on')">TV 켜기</button><button onclick="deviceShortcut('tv_off')">TV 끄기</button><button onclick="deviceShortcut('pc_on')">컴퓨터 켜기</button><button onclick="deviceShortcut('pc_off')">컴퓨터 끄기</button><button onclick="deviceShortcut('laptop_on')">노트북 켜기</button><button onclick="deviceShortcut('laptop_off')">노트북 끄기</button></div>
 <button onclick="startWake()">PRIME 호출 대기</button><button onclick="askVoice()">말하기</button>
@@ -449,18 +449,19 @@ function selectPrimeVoice(){
   if(!('speechSynthesis' in window))return null;
   const voices=speechSynthesis.getVoices().filter(v=>v.lang&&v.lang.toLowerCase().startsWith('ko'));
   if(!voices.length)return null;
-  const preferred=['Google 한국의','Microsoft Heami','Microsoft SunHi','Yuna','Seoyeon','Jihyun'];
+  const preferred=['Google 한국의','Microsoft SunHi','Microsoft Heami','Seoyeon','Yuna','Jihyun'];
   for(const name of preferred){const hit=voices.find(v=>v.name&&v.name.toLowerCase().includes(name.toLowerCase()));if(hit)return hit;}
   return voices.find(v=>/neural|natural|online/i.test(v.name||'')) || voices[0];
 }
+/* PRIME V16.9 voice profile: calm, measured, low-pitch Korean assistant style. */
 function speak(t){
   if(!('speechSynthesis' in window))return;
   speechSynthesis.cancel();
   const u=new SpeechSynthesisUtterance(String(t||''));
   u.lang='ko-KR';
-  u.rate=0.88;
-  u.pitch=0.72;
-  u.volume=1.0;
+  u.rate=0.80;
+  u.pitch=0.62;
+  u.volume=0.94;
   const v=selectPrimeVoice();
   if(v)u.voice=v;
   speechSynthesis.speak(u);
@@ -517,7 +518,7 @@ def home():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "version": "16.7"})
+    return jsonify({"status": "ok", "version": "16.9"})
 
 
 @app.route("/ask", methods=["POST"])
@@ -653,4 +654,4 @@ def weather_route():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
 
-# PRIME V16.7 - AI stability/retry hardening release.
+# PRIME V16.9 - AI stability/retry hardening release.
