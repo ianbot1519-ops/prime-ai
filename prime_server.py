@@ -1,771 +1,250 @@
 import os
-import base64
 import requests
-from urllib.parse import quote
-
 from flask import Flask, request, jsonify, render_template_string
 from openai import OpenAI
 
-
 app = Flask(__name__)
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
-)
-
-
-HTML = """
-<!DOCTYPE html>
+HTML = r"""
+<!doctype html>
 <html lang="ko">
-
 <head>
-
-<meta charset="UTF-8">
-
-<meta name="viewport"
-      content="width=device-width, initial-scale=1.0">
-
-<title>PRIME</title>
-
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PRIME V10</title>
 <style>
-
-body {
-    background: #050505;
-    color: #00aaff;
-    font-family: Arial, sans-serif;
-    text-align: center;
-    padding: 20px;
-}
-
-h1 {
-    font-size: 40px;
-    letter-spacing: 8px;
-}
-
-input {
-    width: 85%;
-    max-width: 500px;
-    padding: 15px;
-    font-size: 18px;
-    background: #111;
-    color: white;
-    border: 1px solid #0088cc;
-    border-radius: 8px;
-}
-
-button {
-    margin: 7px 4px;
-    padding: 13px 20px;
-    font-size: 17px;
-    background: #0088cc;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-button:hover {
-    background: #00aaff;
-}
-
-#answer {
-    margin: 25px auto;
-    max-width: 650px;
-    font-size: 20px;
-    line-height: 1.6;
-}
-
-#status {
-    margin-top: 15px;
-    color: #66ccff;
-}
-
-#wakeStatus {
-    margin-top: 15px;
-    color: #00ffcc;
-}
-
-#cameraArea {
-    display: none;
-    margin: 20px auto;
-    max-width: 650px;
-}
-
-#camera {
-    width: 100%;
-    max-width: 600px;
-    border: 2px solid #0088cc;
-    border-radius: 10px;
-}
-
-#locationStatus {
-    margin-top: 10px;
-    color: #88ddff;
-}
-
+body{margin:0;background:#05080d;color:#eaf3ff;font-family:Arial,sans-serif}
+.wrap{max-width:760px;margin:auto;padding:20px}
+h1{text-align:center;letter-spacing:6px;margin:8px 0}
+.sub{text-align:center;color:#91a7ba;margin-bottom:18px}
+button,input,textarea{width:100%;box-sizing:border-box;border-radius:12px;padding:13px;margin:5px 0;font-size:16px}
+button{border:1px solid #31506b;background:#0d1721;color:white}
+input,textarea{border:1px solid #31506b;background:#091019;color:white}
+textarea{min-height:90px}
+#status{text-align:center;color:#75bcff;min-height:24px;margin:10px 0}
+#answer{white-space:pre-wrap;background:#091019;border:1px solid #20384d;border-radius:12px;padding:14px;min-height:70px}
+video{width:100%;border-radius:12px;margin-top:8px;display:none}
 </style>
-
 </head>
 
 <body>
+<div class="wrap">
 
 <h1>PRIME</h1>
+<div class="sub">Personal Response & Intelligence Management Engine · V10</div>
 
-<p>PRIME V8 ONLINE</p>
+<button onclick="startWake()">PRIME 호출 대기</button>
+<button onclick="askVoice()">말하기</button>
 
+<textarea id="question" placeholder="질문을 입력하세요"></textarea>
+<button onclick="askText()">질문하기</button>
 
-<input
-    id="question"
-    placeholder="PRIME에게 질문하세요"
->
+<button onclick="getWeather()">날씨</button>
 
+<input id="destination" placeholder="목적지">
+<button onclick="directions()">길찾기</button>
 
-<br>
+<button onclick="startCamera()">카메라 켜기</button>
+<video id="camera" autoplay playsinline></video>
 
+<button onclick="vision('identify')">물체 분석</button>
+<button onclick="vision('translate')">번역</button>
+<button onclick="vision('price')">가격 검색</button>
 
-<button onclick="startWakeWord()">
-    PRIME 호출 대기
-</button>
-
-<button onclick="startListening()">
-    말하기
-</button>
-
-<button onclick="askPrime()">
-    질문하기
-</button>
-
-
-<br>
-
-
-<button onclick="getWeather()">
-    날씨
-</button>
-
-<button onclick="openDirections()">
-    길찾기
-</button>
-
-
-<br>
-
-
-<button onclick="startCamera()">
-    카메라 켜기
-</button>
-
-<button onclick="analyzeObject()">
-    물체 분석
-</button>
-
-<button onclick="translateCamera()">
-    번역
-</button>
-
-<button onclick="priceSearch()">
-    가격 검색
-</button>
-
-
-<br>
-
-
-<button onclick="speakAnswer()">
-    답변 듣기
-</button>
-
-
-<div id="wakeStatus">
-    PRIME 호출 대기 꺼짐
-</div>
-
-
-<div id="locationStatus">
-    위치 확인 전
-</div>
-
+<input id="song" placeholder="노래 제목 또는 가수">
+<button onclick="playSong()">노래 검색 / 재생</button>
 
 <div id="status"></div>
-
-
 <div id="answer"></div>
 
-
-<div id="cameraArea">
-
-    <video
-        id="camera"
-        autoplay
-        playsinline>
-    </video>
+<button onclick="speakAnswer()">답변 듣기</button>
 
 </div>
 
-
-<canvas
-    id="snapshot"
-    style="display:none;">
-</canvas>
-
-
 <script>
-
 let recognition = null;
-
+let stream = null;
 let lastAnswer = "";
 
-let selectedVoice = null;
-
-let wakeWordMode = false;
-
-let cameraStream = null;
-
-let lastLocation = null;
-
-
-// ==========================================
-// 음성
-// ==========================================
-
-function loadVoices() {
-
-    const voices =
-        window.speechSynthesis.getVoices();
-
-    if (!voices || voices.length === 0) {
-        return;
-    }
-
-
-    const koreanVoices =
-        voices.filter(function(voice) {
-
-            return voice.lang
-                .toLowerCase()
-                .startsWith("ko");
-
-        });
-
-
-    if (koreanVoices.length === 0) {
-
-        selectedVoice = null;
-
-        return;
-
-    }
-
-
-    selectedVoice =
-        koreanVoices.find(function(voice) {
-
-            const name =
-                voice.name.toLowerCase();
-
-            return (
-                name.includes("male") ||
-                name.includes("man") ||
-                name.includes("남성") ||
-                name.includes("남자")
-            );
-
-        });
-
-
-    if (!selectedVoice) {
-
-        selectedVoice =
-            koreanVoices[0];
-
-    }
-
+function status(t) {
+    document.getElementById("status").textContent = t;
 }
 
-
-window.speechSynthesis.onvoiceschanged =
-    loadVoices;
-
-
-// ==========================================
-// 음성 출력
-// ==========================================
-
-function speakText(text) {
-
-    if (!("speechSynthesis" in window)) {
-        return;
-    }
-
-
-    window.speechSynthesis.cancel();
-
-    loadVoices();
-
-
-    const speech =
-        new SpeechSynthesisUtterance(text);
-
-
-    speech.lang = "ko-KR";
-
-    speech.rate = 0.95;
-
-    speech.pitch = 0.75;
-
-    speech.volume = 1.0;
-
-
-    if (selectedVoice) {
-
-        speech.voice =
-            selectedVoice;
-
-    }
-
-
-    speech.onstart = function() {
-
-        document.getElementById("status")
-            .innerText =
-            "PRIME이 말하고 있습니다...";
-
-    };
-
-
-    speech.onend = function() {
-
-        document.getElementById("status")
-            .innerText =
-            "PRIME 온라인";
-
-    };
-
-
-    window.speechSynthesis.speak(speech);
-
+function answer(t) {
+    lastAnswer = t;
+    document.getElementById("answer").textContent = t;
 }
 
+function speak(t) {
+    if (!("speechSynthesis" in window)) return;
+
+    speechSynthesis.cancel();
+
+    const u = new SpeechSynthesisUtterance(t);
+
+    u.lang = "ko-KR";
+    u.rate = 0.95;
+    u.pitch = 0.75;
+
+    const voices = speechSynthesis.getVoices();
+
+    const ko = voices.filter(function(v) {
+        return v.lang &&
+               v.lang.toLowerCase().startsWith("ko");
+    });
+
+    const male = ko.find(function(v) {
+        return /male|man|남성|남자/i.test(v.name);
+    });
+
+    if (male) {
+        u.voice = male;
+    } else if (ko.length) {
+        u.voice = ko[0];
+    }
+
+    speechSynthesis.speak(u);
+}
 
 function speakAnswer() {
-
-    if (!lastAnswer) {
-
-        document.getElementById("status")
-            .innerText =
-            "먼저 PRIME에게 질문해주세요.";
-
-        return;
-
+    if (lastAnswer) {
+        speak(lastAnswer);
     }
-
-    speakText(lastAnswer);
-
 }
 
-
-// ==========================================
-// PRIME 호출어
-// ==========================================
-
-function startWakeWord() {
-
-    const SpeechRecognition =
+function makeRecognition() {
+    const R =
         window.SpeechRecognition ||
         window.webkitSpeechRecognition;
 
-
-    if (!SpeechRecognition) {
-
-        document.getElementById("status")
-            .innerText =
-            "이 브라우저에서는 음성 인식을 지원하지 않습니다.";
-
-        return;
-
+    if (!R) {
+        status("이 브라우저는 음성 인식을 지원하지 않습니다.");
+        return null;
     }
 
+    const r = new R();
 
-    wakeWordMode = true;
+    r.lang = "ko-KR";
+    r.interimResults = false;
+    r.continuous = false;
 
-
-    document.getElementById("wakeStatus")
-        .innerText =
-        "PRIME 호출 대기 중...";
-
-
-    document.getElementById("status")
-        .innerText =
-        "PRIME이라고 말해보세요.";
-
-
-    startWakeRecognition();
-
+    return r;
 }
 
+function startWake() {
+    recognition = makeRecognition();
 
-function startWakeRecognition() {
+    if (!recognition) return;
 
-    if (!wakeWordMode) {
-        return;
-    }
+    status("PRIME 호출을 기다리는 중...");
 
+    recognition.onresult = function(e) {
 
-    const SpeechRecognition =
-        window.SpeechRecognition ||
-        window.webkitSpeechRecognition;
+        const t =
+            e.results[0][0].transcript
+            .trim()
+            .toLowerCase();
 
+        if (
+            t.includes("prime") ||
+            t.includes("프라임")
+        ) {
+            status("네. 말씀하세요.");
+            speak("네. 말씀하세요.");
 
-    recognition =
-        new SpeechRecognition();
-
-
-    recognition.lang =
-        "ko-KR";
-
-
-    recognition.continuous =
-        false;
-
-
-    recognition.interimResults =
-        false;
-
-
-    try {
-
-        recognition.start();
-
-    } catch (error) {
-
-        console.log(error);
-
-    }
-
-
-    recognition.onresult =
-        function(event) {
-
-            const text =
-                event.results[0][0]
-                    .transcript
-                    .trim();
-
-
-            if (
-                text.includes("PRIME") ||
-                text.includes("프라임") ||
-                text.includes("프라임아")
-            ) {
-
-                wakeWordMode = false;
-
-
-                document.getElementById(
-                    "wakeStatus"
-                ).innerText =
-                    "PRIME 활성화";
-
-
-                speakText(
-                    "네. 말씀하세요."
-                );
-
-
-                setTimeout(
-                    startQuestionListening,
-                    1200
-                );
-
-            } else {
-
-                setTimeout(
-                    startWakeRecognition,
-                    300
-                );
-
-            }
-
-        };
-
-
-    recognition.onerror =
-        function(event) {
-
-            console.log(
-                "Wake error:",
-                event.error
+            setTimeout(
+                askVoice,
+                1200
             );
 
+        } else {
+            status("PRIME이라고 말씀해주세요.");
+        }
+    };
 
-            if (wakeWordMode) {
+    recognition.onerror = function() {
+        status("호출 대기가 종료되었습니다.");
+    };
 
-                setTimeout(
-                    startWakeRecognition,
-                    500
-                );
-
-            }
-
-        };
-
-
-    recognition.onend =
-        function() {
-
-            if (wakeWordMode) {
-
-                setTimeout(
-                    startWakeRecognition,
-                    300
-                );
-
-            }
-
-        };
-
+    recognition.start();
 }
 
+function askVoice() {
+    recognition = makeRecognition();
 
-// ==========================================
-// 호출 후 질문
-// ==========================================
+    if (!recognition) return;
 
-function startQuestionListening() {
+    status("듣고 있습니다...");
 
-    const SpeechRecognition =
-        window.SpeechRecognition ||
-        window.webkitSpeechRecognition;
+    recognition.onresult = function(e) {
 
+        const q =
+            e.results[0][0].transcript;
 
-    if (!SpeechRecognition) {
-        return;
-    }
+        document.getElementById(
+            "question"
+        ).value = q;
 
+        ask(q);
+    };
 
-    recognition =
-        new SpeechRecognition();
+    recognition.onerror = function() {
+        status("음성을 듣지 못했습니다.");
+    };
 
-
-    recognition.lang =
-        "ko-KR";
-
-
-    recognition.continuous =
-        false;
-
-
-    recognition.interimResults =
-        false;
-
-
-    document.getElementById("status")
-        .innerText =
-        "듣고 있습니다...";
-
-
-    try {
-
-        recognition.start();
-
-    } catch (error) {
-
-        console.log(error);
-
-    }
-
-
-    recognition.onresult =
-        function(event) {
-
-            const text =
-                event.results[0][0]
-                    .transcript
-                    .trim();
-
-
-            document.getElementById(
-                "question"
-            ).value =
-                text;
-
-
-            askPrime();
-
-        };
-
-
-    recognition.onerror =
-        function(event) {
-
-            console.log(
-                "Question error:",
-                event.error
-            );
-
-            startWakeWord();
-
-        };
-
+    recognition.start();
 }
 
+async function askText() {
 
-// ==========================================
-// 일반 음성 질문
-// ==========================================
-
-function startListening() {
-
-    const SpeechRecognition =
-        window.SpeechRecognition ||
-        window.webkitSpeechRecognition;
-
-
-    if (!SpeechRecognition) {
-        return;
-    }
-
-
-    recognition =
-        new SpeechRecognition();
-
-
-    recognition.lang =
-        "ko-KR";
-
-
-    recognition.continuous =
-        false;
-
-
-    recognition.interimResults =
-        false;
-
-
-    document.getElementById("status")
-        .innerText =
-        "PRIME이 듣고 있습니다...";
-
-
-    try {
-
-        recognition.start();
-
-    } catch (error) {
-
-        console.log(error);
-
-    }
-
-
-    recognition.onresult =
-        function(event) {
-
-            const text =
-                event.results[0][0]
-                    .transcript;
-
-
-            document.getElementById(
-                "question"
-            ).value =
-                text;
-
-
-            askPrime();
-
-        };
-
-}
-
-
-// ==========================================
-// PRIME 질문
-// ==========================================
-
-async function askPrime() {
-
-    const question =
+    const q =
         document.getElementById(
             "question"
         ).value.trim();
 
-
-    if (!question) {
-        return;
+    if (q) {
+        await ask(q);
     }
+}
 
+async function ask(q) {
 
-    document.getElementById(
-        "answer"
-    ).innerText =
-        "PRIME: 생각 중...";
-
-
-    document.getElementById(
-        "status"
-    ).innerText =
-        "PRIME이 처리하고 있습니다...";
-
+    status("PRIME 처리 중...");
 
     try {
 
-        const response =
+        const r =
             await fetch(
                 "/ask",
                 {
                     method: "POST",
-
                     headers: {
                         "Content-Type":
                             "application/json"
                     },
-
-                    body:
-                        JSON.stringify({
-                            question:
-                                question
-                        })
+                    body: JSON.stringify({
+                        question: q
+                    })
                 }
             );
 
+        const d = await r.json();
 
-        const data =
-            await response.json();
+        const a =
+            d.answer ||
+            d.error ||
+            "오류가 발생했습니다.";
 
+        answer(a);
+        status("완료");
+        speak(a);
 
-        lastAnswer =
-            data.answer;
+    } catch (e) {
 
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            lastAnswer;
-
-
-        speakAnswer();
-
-
-    } catch (error) {
-
-        console.error(error);
-
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: 서버 연결 오류";
-
+        status("서버 연결 오류");
     }
-
 }
-
-
-// ==========================================
-// 위치 가져오기
-// ==========================================
 
 function getLocation() {
 
@@ -775,576 +254,314 @@ function getLocation() {
             if (!navigator.geolocation) {
 
                 reject(
-                    "이 브라우저는 위치 기능을 지원하지 않습니다."
+                    "위치 기능을 사용할 수 없습니다."
                 );
 
                 return;
-
             }
 
-
             navigator.geolocation.getCurrentPosition(
-
-                function(position) {
-
-                    lastLocation = {
-
-                        latitude:
-                            position.coords.latitude,
-
-                        longitude:
-                            position.coords.longitude
-
-                    };
-
-
-                    document.getElementById(
-                        "locationStatus"
-                    ).innerText =
-                        "현재 위치 확인 완료";
-
-
-                    resolve(lastLocation);
-
+                function(p) {
+                    resolve(p.coords);
                 },
-
-
-                function(error) {
-
+                function() {
                     reject(
                         "위치 권한이 필요합니다."
                     );
-
-                },
-
-
-                {
-                    enableHighAccuracy: true,
-
-                    timeout: 10000,
-
-                    maximumAge: 60000
-
                 }
-
             );
-
         }
     );
-
 }
-
-
-// ==========================================
-// 날씨
-// ==========================================
 
 async function getWeather() {
 
-    document.getElementById(
-        "status"
-    ).innerText =
-        "현재 위치와 날씨를 확인하고 있습니다...";
-
-
     try {
 
-        const location =
+        status(
+            "현재 위치의 날씨를 확인 중..."
+        );
+
+        const c =
             await getLocation();
 
-
-        const response =
+        const r =
             await fetch(
-                "/weather",
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body:
-                        JSON.stringify(
-                            location
-                        )
-                }
+                "/weather?lat=" +
+                c.latitude +
+                "&lon=" +
+                c.longitude
             );
 
+        const d =
+            await r.json();
 
-        const data =
-            await response.json();
+        if (d.error) {
+            status(d.error);
+            return;
+        }
 
+        const t =
+            "현재 기온 " +
+            d.temperature +
+            "도, " +
+            d.description +
+            "입니다. 오늘 최고 " +
+            d.max +
+            "도, 최저 " +
+            d.min +
+            "도입니다.";
 
-        lastAnswer =
-            data.answer;
+        answer(t);
+        status("완료");
+        speak(t);
 
+    } catch (e) {
 
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            lastAnswer;
-
-
-        speakAnswer();
-
-
-    } catch (error) {
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            error;
-
+        status(String(e));
     }
-
 }
 
+async function directions() {
 
-// ==========================================
-// 길찾기
-// ==========================================
-
-async function openDirections() {
-
-    const destination =
+    const dest =
         document.getElementById(
-            "question"
+            "destination"
         ).value.trim();
 
+    if (!dest) {
 
-    if (!destination) {
-
-        document.getElementById(
-            "status"
-        ).innerText =
-            "목적지를 먼저 입력해주세요.";
+        status(
+            "목적지를 입력해주세요."
+        );
 
         return;
-
     }
-
 
     try {
 
-        const location =
+        const c =
             await getLocation();
 
+        const origin =
+            c.latitude +
+            "," +
+            c.longitude;
 
         const url =
             "https://www.google.com/maps/dir/?api=1" +
             "&origin=" +
-            encodeURIComponent(
-                location.latitude +
-                "," +
-                location.longitude
-            ) +
+            encodeURIComponent(origin) +
             "&destination=" +
-            encodeURIComponent(
-                destination
-            );
-
+            encodeURIComponent(dest);
 
         window.open(
             url,
             "_blank"
         );
 
+        status(
+            "길찾기를 열었습니다."
+        );
 
-        lastAnswer =
-            destination +
-            "까지의 길찾기를 열었습니다.";
+    } catch (e) {
 
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            lastAnswer;
-
-
-        speakAnswer();
-
-
-    } catch (error) {
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            error;
-
+        status(String(e));
     }
-
 }
-
-
-// ==========================================
-// 카메라 시작
-// ==========================================
 
 async function startCamera() {
 
     try {
 
-        cameraStream =
-            await navigator.mediaDevices
-                .getUserMedia({
-
+        stream =
+            await navigator.mediaDevices.getUserMedia(
+                {
                     video: {
-                        facingMode: {
-                            ideal: "environment"
-                        }
+                        facingMode:
+                            "environment"
                     },
-
                     audio: false
+                }
+            );
 
-                });
-
-
-        const video =
+        const v =
             document.getElementById(
                 "camera"
             );
 
+        v.srcObject = stream;
+        v.style.display = "block";
 
-        video.srcObject =
-            cameraStream;
+        status(
+            "카메라가 켜졌습니다."
+        );
 
+    } catch (e) {
 
-        document.getElementById(
-            "cameraArea"
-        ).style.display =
-            "block";
-
-
-        document.getElementById(
-            "status"
-        ).innerText =
-            "카메라가 켜졌습니다.";
-
-    } catch (error) {
-
-        console.error(error);
-
-
-        document.getElementById(
-            "status"
-        ).innerText =
-            "카메라 권한을 허용해주세요.";
-
+        status(
+            "카메라 권한을 허용해주세요."
+        );
     }
-
 }
 
+function cameraData() {
 
-// ==========================================
-// 카메라 사진 캡처
-// ==========================================
+    if (!stream) return null;
 
-function captureImage() {
-
-    const video =
+    const v =
         document.getElementById(
             "camera"
         );
 
+    const c =
+        document.createElement(
+            "canvas"
+        );
 
-    if (!video.srcObject) {
+    c.width =
+        v.videoWidth || 640;
 
-        throw new Error(
+    c.height =
+        v.videoHeight || 480;
+
+    c.getContext(
+        "2d"
+    ).drawImage(
+        v,
+        0,
+        0,
+        c.width,
+        c.height
+    );
+
+    return c.toDataURL(
+        "image/jpeg",
+        0.8
+    );
+}
+
+async function vision(mode) {
+
+    const image =
+        cameraData();
+
+    if (!image) {
+
+        status(
             "먼저 카메라를 켜주세요."
         );
 
+        return;
     }
 
+    status(
+        "카메라 화면을 분석 중..."
+    );
 
-    const canvas =
+    try {
+
+        const r =
+            await fetch(
+                "/vision",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+                    body: JSON.stringify({
+                        image: image,
+                        mode: mode
+                    })
+                }
+            );
+
+        const d =
+            await r.json();
+
+        const a =
+            d.answer ||
+            d.error ||
+            "분석 실패";
+
+        answer(a);
+        status("완료");
+        speak(a);
+
+    } catch (e) {
+
+        status(
+            "카메라 분석 오류"
+        );
+    }
+}
+
+function playSong() {
+
+    const song =
         document.getElementById(
-            "snapshot"
+            "song"
+        ).value.trim();
+
+    if (!song) {
+
+        status(
+            "노래 제목이나 가수를 입력해주세요."
         );
 
+        return;
+    }
 
-    canvas.width =
-        video.videoWidth;
+    const url =
+        "https://www.youtube.com/results?search_query=" +
+        encodeURIComponent(song);
 
-
-    canvas.height =
-        video.videoHeight;
-
-
-    const context =
-        canvas.getContext("2d");
-
-
-    context.drawImage(
-        video,
-        0,
-        0,
-        canvas.width,
-        canvas.height
+    window.open(
+        url,
+        "_blank"
     );
 
+    const t =
+        song +
+        "를 YouTube에서 검색합니다.";
 
-    return canvas.toDataURL(
-        "image/jpeg",
-        0.85
+    answer(t);
+    status(
+        "YouTube 검색을 열었습니다."
     );
-
+    speak(t);
 }
-
-
-// ==========================================
-// 물체 분석
-// ==========================================
-
-async function analyzeObject() {
-
-    try {
-
-        const image =
-            captureImage();
-
-
-        document.getElementById(
-            "status"
-        ).innerText =
-            "PRIME이 앞의 물체를 분석하고 있습니다...";
-
-
-        const response =
-            await fetch(
-                "/vision",
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body:
-                        JSON.stringify({
-
-                            image:
-                                image,
-
-                            mode:
-                                "analyze"
-
-                        })
-
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        lastAnswer =
-            data.answer;
-
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            lastAnswer;
-
-
-        speakAnswer();
-
-
-    } catch (error) {
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            error.message;
-
-    }
-
-}
-
-
-// ==========================================
-// 번역
-// ==========================================
-
-async function translateCamera() {
-
-    try {
-
-        const image =
-            captureImage();
-
-
-        document.getElementById(
-            "status"
-        ).innerText =
-            "PRIME이 글자를 읽고 번역하고 있습니다...";
-
-
-        const response =
-            await fetch(
-                "/vision",
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body:
-                        JSON.stringify({
-
-                            image:
-                                image,
-
-                            mode:
-                                "translate"
-
-                        })
-
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        lastAnswer =
-            data.answer;
-
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            lastAnswer;
-
-
-        speakAnswer();
-
-
-    } catch (error) {
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            error.message;
-
-    }
-
-}
-
-
-// ==========================================
-// 가격 검색
-// ==========================================
-
-async function priceSearch() {
-
-    try {
-
-        const image =
-            captureImage();
-
-
-        document.getElementById(
-            "status"
-        ).innerText =
-            "제품을 식별하고 현재 가격을 검색하고 있습니다...";
-
-
-        const response =
-            await fetch(
-                "/vision",
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body:
-                        JSON.stringify({
-
-                            image:
-                                image,
-
-                            mode:
-                                "price"
-
-                        })
-
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        lastAnswer =
-            data.answer;
-
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            lastAnswer;
-
-
-        speakAnswer();
-
-
-    } catch (error) {
-
-        document.getElementById(
-            "answer"
-        ).innerText =
-            "PRIME: " +
-            error.message;
-
-    }
-
-}
-
-
-// ==========================================
-// 페이지 로딩
-// ==========================================
-
-window.addEventListener(
-    "load",
-    function() {
-
-        loadVoices();
-
-    }
-);
-
 </script>
-
 </body>
-
 </html>
 """
 
 
-# ==========================================
-# 메인
-# ==========================================
+def response_text(prompt, web=False):
+
+    kwargs = {
+        "model": "gpt-5.6-luna",
+        "instructions": (
+            "당신은 PRIME이라는 개인 AI 비서다. "
+            "한국어로 답하고 이해하기 쉽게 정확하게 설명한다."
+        ),
+        "input": prompt
+    }
+
+    if web:
+        kwargs["tools"] = [
+            {
+                "type": "web_search"
+            }
+        ]
+
+    response = client.responses.create(
+        **kwargs
+    )
+
+    return response.output_text
+
 
 @app.route("/")
 def home():
@@ -1354,293 +571,170 @@ def home():
     )
 
 
-# ==========================================
-# 일반 PRIME AI
-# ==========================================
-
 @app.route(
     "/ask",
     methods=["POST"]
 )
 def ask():
 
-    data =
-        request.get_json(
-            silent=True
-        ) or {}
+    try:
 
+        data = (
+            request.get_json(
+                silent=True
+            ) or {}
+        )
 
-    question =
-        data.get(
-            "question",
-            ""
+        question = str(
+            data.get(
+                "question",
+                ""
+            )
         ).strip()
 
+        if not question:
 
-    if not question:
+            return jsonify(
+                {
+                    "error":
+                    "질문이 없습니다."
+                }
+            ), 400
 
-        return jsonify({
-            "answer":
-                "질문을 입력해주세요."
-        })
+        web_words = [
+            "가격",
+            "얼마",
+            "현재",
+            "오늘",
+            "최신",
+            "뉴스",
+            "시장가",
+            "노래"
+        ]
 
+        use_web = any(
+            word in question
+            for word in web_words
+        )
 
-    try:
+        result = response_text(
+            question,
+            use_web
+        )
 
-        response =
-            client.responses.create(
-
-                model="gpt-6-luna",
-
-                instructions="""
-당신의 이름은 PRIME입니다.
-
-당신은 사용자의 개인 AI 비서입니다.
-
-차분하고 정중하며 자연스럽게
-한국어로 대답합니다.
-
-음성으로 읽었을 때 자연스럽도록
-불필요한 특수문자와 이모티콘을
-사용하지 않습니다.
-
-최신 정보가 필요한 질문은
-웹 검색을 활용합니다.
-
-날씨, 가격, 뉴스, 현재 정보 등은
-추측하지 말고 확인된 정보를 사용합니다.
-""",
-
-                tools=[
-                    {
-                        "type":
-                            "web_search"
-                    }
-                ],
-
-                input=question
-
-            )
-
-
-        return jsonify({
-            "answer":
-                response.output_text
-        })
-
+        return jsonify(
+            {
+                "answer": result
+            }
+        )
 
     except Exception as e:
 
-        print(
-            "ASK ERROR:",
-            e
-        )
+        return jsonify(
+            {
+                "error":
+                "AI 오류: " +
+                str(e)
+            }
+        ), 500
 
 
-        return jsonify({
-            "answer":
-                "PRIME 처리 중 오류가 발생했습니다."
-        })
-
-
-# ==========================================
-# 날씨
-# ==========================================
-
-@app.route(
-    "/weather",
-    methods=["POST"]
-)
+@app.route("/weather")
 def weather():
 
-    data =
-        request.get_json(
-            silent=True
-        ) or {}
-
-
-    latitude =
-        data.get("latitude")
-
-
-    longitude =
-        data.get("longitude")
-
-
-    if latitude is None or longitude is None:
-
-        return jsonify({
-            "answer":
-                "현재 위치를 확인할 수 없습니다."
-        })
-
-
     try:
 
-        url =
-            "https://api.open-meteo.com/v1/forecast"
-
-
-        params = {
-
-            "latitude":
-                latitude,
-
-            "longitude":
-                longitude,
-
-            "current":
-                "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m",
-
-            "timezone":
-                "Asia/Seoul"
-
-        }
-
-
-        response =
-            requests.get(
-                url,
-                params=params,
-                timeout=10
-            )
-
-
-        response.raise_for_status()
-
-
-        weather_data =
-            response.json()
-
-
-        current =
-            weather_data[
-                "current"
-            ]
-
-
-        weather_code =
-            current.get(
-                "weather_code",
-                0
-            )
-
-
-        descriptions = {
-
-            0: "맑음",
-
-            1: "대체로 맑음",
-
-            2: "부분적으로 흐림",
-
-            3: "흐림",
-
-            45: "안개",
-
-            48: "안개",
-
-            51: "약한 이슬비",
-
-            53: "이슬비",
-
-            55: "강한 이슬비",
-
-            61: "약한 비",
-
-            63: "비",
-
-            65: "강한 비",
-
-            71: "약한 눈",
-
-            73: "눈",
-
-            75: "강한 눈",
-
-            80: "소나기",
-
-            81: "소나기",
-
-            82: "강한 소나기",
-
-            95: "뇌우",
-
-            96: "뇌우",
-
-            99: "뇌우"
-
-        }
-
-
-        description =
-            descriptions.get(
-                weather_code,
-                "현재 날씨"
-            )
-
-
-        answer = (
-            "현재 기온은 "
-            + str(
-                current.get(
-                    "temperature_2m"
-                )
-            )
-            + "도입니다. "
-
-            + description
-            + "이고, "
-
-            + "체감온도는 "
-            + str(
-                current.get(
-                    "apparent_temperature"
-                )
-            )
-            + "도입니다. "
-
-            + "습도는 "
-            + str(
-                current.get(
-                    "relative_humidity_2m"
-                )
-            )
-            + "퍼센트이며, "
-
-            + "바람은 시속 "
-            + str(
-                current.get(
-                    "wind_speed_10m"
-                )
-            )
-            + "킬로미터입니다."
+        lat = float(
+            request.args["lat"]
         )
 
+        lon = float(
+            request.args["lon"]
+        )
 
-        return jsonify({
-            "answer":
-                answer
-        })
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "current":
+                "temperature_2m,weather_code",
+            "daily":
+                "temperature_2m_max,temperature_2m_min",
+            "timezone":
+                "Asia/Seoul"
+        }
 
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params=params,
+            timeout=15
+        )
+
+        r.raise_for_status()
+
+        data = r.json()
+
+        current = data["current"]
+        daily = data["daily"]
+
+        descriptions = {
+            0: "맑음",
+            1: "대체로 맑음",
+            2: "부분적으로 흐림",
+            3: "흐림",
+            45: "안개",
+            48: "짙은 안개",
+            51: "이슬비",
+            53: "이슬비",
+            55: "이슬비",
+            61: "비",
+            63: "비",
+            65: "강한 비",
+            71: "눈",
+            73: "눈",
+            75: "강한 눈",
+            80: "소나기",
+            81: "소나기",
+            82: "강한 소나기",
+            95: "뇌우"
+        }
+
+        return jsonify(
+            {
+                "temperature":
+                    current[
+                        "temperature_2m"
+                    ],
+
+                "description":
+                    descriptions.get(
+                        current[
+                            "weather_code"
+                        ],
+                        "날씨 정보"
+                    ),
+
+                "max":
+                    daily[
+                        "temperature_2m_max"
+                    ][0],
+
+                "min":
+                    daily[
+                        "temperature_2m_min"
+                    ][0]
+            }
+        )
 
     except Exception as e:
 
-        print(
-            "WEATHER ERROR:",
-            e
-        )
+        return jsonify(
+            {
+                "error":
+                "날씨 오류: " +
+                str(e)
+            }
+        ), 500
 
-
-        return jsonify({
-            "answer":
-                "날씨 정보를 가져오지 못했습니다."
-        })
-
-
-# ==========================================
-# 카메라 AI
-# ==========================================
 
 @app.route(
     "/vision",
@@ -1648,228 +742,131 @@ def weather():
 )
 def vision():
 
-    data =
-        request.get_json(
-            silent=True
-        ) or {}
+    try:
 
+        data = (
+            request.get_json(
+                silent=True
+            ) or {}
+        )
 
-    image_data =
-        data.get(
+        image = data.get(
             "image",
             ""
         )
 
-
-    mode =
-        data.get(
+        mode = data.get(
             "mode",
-            "analyze"
+            "identify"
         )
 
+        if not image.startswith(
+            "data:image/"
+        ):
 
-    if not image_data:
+            return jsonify(
+                {
+                    "error":
+                    "이미지 데이터가 없습니다."
+                }
+            ), 400
 
-        return jsonify({
-            "answer":
-                "카메라 이미지를 받지 못했습니다."
-        })
+        prompts = {
 
+            "identify":
+                "사진 속 물체를 식별해줘. "
+                "브랜드, 종류, 모델명과 특징을 설명하고 "
+                "확실하지 않은 내용은 추정이라고 말해줘.",
 
-    try:
+            "translate":
+                "사진 속 글자를 읽고 "
+                "자연스러운 한국어로 번역해줘. "
+                "읽기 어려운 부분은 명확히 알려줘.",
 
-        if "," in image_data:
-
-            image_data =
-                image_data.split(
-                    ",",
-                    1
-                )[1]
-
-
-        prompt = ""
-
-
-        if mode == "analyze":
-
-            prompt = """
-사진을 보고 앞에 있는 물체를 분석하세요.
-
-한국어로 대답하세요.
-
-가능하면 다음을 알려주세요.
-
-1. 무엇인지
-2. 브랜드
-3. 제품 종류
-4. 보이는 특징
-5. 정확한 모델을 판단할 수 있는지
-
-확실하지 않은 내용은 추측해서 단정하지 마세요.
-"""
-
-
-        elif mode == "translate":
-
-            prompt = """
-사진 속에 보이는 글자를 읽으세요.
-
-외국어가 있다면 한국어로 번역하세요.
-
-가능하면 원문과 한국어 번역을 함께 알려주세요.
-
-글자가 잘 보이지 않으면 그렇게 알려주세요.
-"""
-
-
-        elif mode == "price":
-
-            prompt = """
-사진 속 물체를 분석해서 제품을 식별하세요.
-
-가능하면 브랜드와 정확한 제품명,
-모델명을 확인하세요.
-
-그 다음 웹 검색을 사용해서
-현재 판매 가격과 가능한 경우
-중고 시세를 확인하세요.
-
-가격은 대한민국 원화 기준으로 설명하세요.
-
-검색 결과가 확실하지 않으면
-정확한 가격이라고 단정하지 마세요.
-
-제품 식별이 불확실하면
-후보 제품을 구분해서 설명하세요.
-"""
-
-
-        image_url =
-            "data:image/jpeg;base64," +
-            image_data
-
+            "price":
+                "사진 속 제품을 식별해줘. "
+                "브랜드와 모델을 추정하고 "
+                "현재 한국 판매 가격대를 웹 검색으로 확인해줘. "
+                "확실하지 않은 식별은 추정이라고 말해줘."
+        }
 
         tools = []
-
 
         if mode == "price":
 
             tools = [
                 {
-                    "type":
-                        "web_search"
+                    "type": "web_search"
                 }
             ]
 
+        response = client.responses.create(
+            model="gpt-5.6-luna",
 
-        response =
-            client.responses.create(
+            instructions=(
+                "당신은 PRIME의 카메라 분석 담당이다. "
+                "한국어로 답한다."
+            ),
 
-                model="gpt-6-luna",
+            tools=tools,
 
-                instructions="""
-당신은 PRIME입니다.
+            input=[
+                {
+                    "role": "user",
 
-사용자가 카메라로 보여주는
-사물을 분석하는 개인 AI 비서입니다.
+                    "content": [
+                        {
+                            "type":
+                            "input_text",
 
-항상 한국어로 대답하세요.
+                            "text":
+                            prompts.get(
+                                mode,
+                                prompts["identify"]
+                            )
+                        },
 
-확실하지 않은 정보는
-확실하다고 말하지 마세요.
+                        {
+                            "type":
+                            "input_image",
 
-가격을 말할 때는
-검색된 최신 정보와
-가격의 기준을 명확히 설명하세요.
-""",
+                            "image_url":
+                            image,
 
-                tools=tools,
+                            "detail":
+                            "auto"
+                        }
+                    ]
+                }
+            ]
+        )
 
-                input=[
-
-                    {
-
-                        "role":
-                            "user",
-
-                        "content": [
-
-                            {
-
-                                "type":
-                                    "input_text",
-
-                                "text":
-                                    prompt
-
-                            },
-
-                            {
-
-                                "type":
-                                    "input_image",
-
-                                "image_url":
-                                    image_url
-
-                            }
-
-                        ]
-
-                    }
-
-                ]
-
-            )
-
-
-        return jsonify({
-            "answer":
+        return jsonify(
+            {
+                "answer":
                 response.output_text
-        })
-
+            }
+        )
 
     except Exception as e:
 
-        print(
-            "VISION ERROR:",
-            e
-        )
+        return jsonify(
+            {
+                "error":
+                "카메라 분석 오류: " +
+                str(e)
+            }
+        ), 500
 
-
-        return jsonify({
-            "answer":
-                "카메라 분석 중 오류가 발생했습니다."
-        })
-
-
-# ==========================================
-# 서버 실행
-# ==========================================
 
 if __name__ == "__main__":
 
-    print(
-        "=============================="
-    )
-
-    print(
-        " PRIME V8 SERVER"
-    )
-
-    print(
-        "=============================="
-    )
-
-    print(
-        "PRIME V8 서버가 시작되었습니다."
-    )
-
-
     app.run(
-
         host="0.0.0.0",
-
-        port=5000
-
+        port=int(
+            os.environ.get(
+                "PORT",
+                10000
+            )
+        )
     )
