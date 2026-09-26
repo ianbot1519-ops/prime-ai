@@ -56,7 +56,7 @@ def clean_ai_response(text):
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
-def ask_vireonix(question):
+def ask_vireonix(question, history=None):
     system_prompt = '''
 당신은 PRIME이라는 개인 AI 비서다.
 항상 한국어로 답한다.
@@ -67,13 +67,24 @@ def ask_vireonix(question):
 사용자가 요청하지 않은 개인적인 생각이나 감정을 임의로 추가하지 않는다.
 모르는 것은 모른다고 정확하게 말한다.
 답변은 이해하기 쉽게 작성한다.
+이전 대화가 제공되면 그것을 참고해 사용자의 질문을 자연스럽게 이어서 답한다.
+이전 대화에 없는 사실은 기억하는 척하지 않는다.
 '''
+
+    messages = [{"role": "system", "content": system_prompt}]
+    if isinstance(history, list):
+        for item in history[-12:]:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role")
+            content = item.get("content")
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                messages.append({"role": role, "content": content[:1500]})
+    messages.append({"role": "user", "content": question})
+
     payload = {
         "model": "auto",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question},
-        ],
+        "messages": messages,
     }
     response = requests.post(VIREONIX_URL, json=payload, timeout=90)
     response.raise_for_status()
@@ -342,7 +353,7 @@ HTML = r'''<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PRIME V13</title>
+<title>PRIME V16</title>
 <style>
 body{margin:0;background:#05080d;color:#eaf3ff;font-family:Arial,sans-serif}
 .wrap{max-width:760px;margin:auto;padding:20px}
@@ -360,11 +371,12 @@ video{width:100%;border-radius:12px;margin-top:8px;display:none}
 <body>
 <div class="wrap">
 <h1>PRIME</h1>
-<div class="sub">Personal Response &amp; Intelligence Management Engine V14.2</div>
+<div class="sub">Personal Response &amp; Intelligence Management Engine V16</div>
 <button onclick="startWake()">PRIME 호출 대기</button>
 <button onclick="askVoice()">말하기</button>
 <textarea id="question" placeholder="질문을 입력하세요"></textarea>
 <button onclick="askText()">질문하기</button>
+<button onclick="clearConversationMemory()">대화 기억 지우기</button>
 <input id="calc" placeholder="계산식 예: 25 + 37">
 <button onclick="calculate()">계산하기</button> <input id="search" placeholder="검색어"> <button onclick="webSearch()">웹 검색</button>
 <button onclick="getTime()">현재 시간</button>
@@ -381,10 +393,17 @@ video{width:100%;border-radius:12px;margin-top:8px;display:none}
 <button onclick="playSong()">노래 검색 재생</button>
 <div id="status"></div>
 <div id="answer"></div>
+<div style="text-align:center;color:#91a7ba;margin:8px 0;font-size:13px">최근 대화 6회분을 이 브라우저에 기억합니다.</div>
 <button onclick="speakAnswer()">답변 듣기</button>
 </div>
 <script>
 let recognition=null,stream=null,lastAnswer="";
+const MEMORY_KEY="prime_v16_conversation";
+let conversationHistory=loadConversationHistory();
+function loadConversationHistory(){try{const saved=JSON.parse(localStorage.getItem(MEMORY_KEY)||"[]");return Array.isArray(saved)?saved.slice(-12):[]}catch(e){return []}}
+function saveConversationHistory(){try{localStorage.setItem(MEMORY_KEY,JSON.stringify(conversationHistory.slice(-12)))}catch(e){}}
+function rememberTurn(userText,assistantText){conversationHistory.push({role:"user",content:String(userText).slice(0,1500)});conversationHistory.push({role:"assistant",content:String(assistantText).slice(0,1500)});conversationHistory=conversationHistory.slice(-12);saveConversationHistory()}
+function clearConversationMemory(){conversationHistory=[];try{localStorage.removeItem(MEMORY_KEY)}catch(e){};answer("대화 기억을 지웠습니다.");status("대화 기억 삭제 완료")}
 function status(text){document.getElementById("status").textContent=text}
 function answer(text){lastAnswer=text;document.getElementById("answer").textContent=text}
 function speak(text){if(!("speechSynthesis" in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang="ko-KR";u.rate=.95;u.pitch=.75;const v=speechSynthesis.getVoices().filter(x=>x.lang&&x.lang.toLowerCase().startsWith("ko"));if(v.length)u.voice=v[0];speechSynthesis.speak(u)}
@@ -393,7 +412,7 @@ function makeRecognition(){const R=window.SpeechRecognition||window.webkitSpeech
 function startWake(){recognition=makeRecognition();if(!recognition)return;status("PRIME 호출을 기다리는 중");recognition.onresult=e=>{const t=e.results[0][0].transcript.trim().toLowerCase();if(t.includes("prime")||t.includes("프라임")){status("네. 말씀하세요.");speak("네. 말씀하세요.");setTimeout(askVoice,1200)}else status("PRIME이라고 말씀해주세요.")};recognition.onerror=()=>status("호출 대기가 종료되었습니다.");try{recognition.start()}catch(e){status("음성 인식을 시작할 수 없습니다.")}}
 function askVoice(){recognition=makeRecognition();if(!recognition)return;status("듣고 있습니다");recognition.onresult=e=>{const q=e.results[0][0].transcript;document.getElementById("question").value=q;ask(q)};recognition.onerror=()=>status("음성을 듣지 못했습니다.");try{recognition.start()}catch(e){status("음성 인식을 시작할 수 없습니다.")}}
 async function askText(){const q=document.getElementById("question").value.trim();if(q)await ask(q)}
-async function ask(question){status("PRIME 처리 중");try{const r=await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question})});const d=await r.json();const a=d.answer||d.error||"오류가 발생했습니다.";answer(a);if(d.search_url){window.open(d.search_url,"_blank");status("검색 페이지를 열었습니다.");speak(a);return}status("완료");speak(a)}catch(e){status("서버 연결 오류");answer("서버에 연결하지 못했습니다.")}}
+async function ask(question){status("PRIME 처리 중");try{const r=await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question,history:conversationHistory})});const d=await r.json();const a=d.answer||d.error||"오류가 발생했습니다.";answer(a);if(d.answer){rememberTurn(question,a)}if(d.search_url){window.open(d.search_url,"_blank");status("검색 페이지를 열었습니다.");speak(a);return}status("완료");speak(a)}catch(e){status("서버 연결 오류");answer("서버에 연결하지 못했습니다.")}}
 async function webSearch(){const q=document.getElementById("search").value.trim();if(!q){status("검색어를 입력해주세요.");return}status("검색 페이지 준비 중");try{const r=await fetch("/search",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q})});const d=await r.json();if(d.search_url){window.open(d.search_url,"_blank");answer(d.answer||"웹 검색을 준비했습니다.");status("검색 페이지를 열었습니다.");speak(d.answer||"웹 검색을 준비했습니다.");return}answer(d.error||"검색할 수 없습니다.");status("검색 오류")}catch(e){status("검색 서버 연결 오류");answer("검색 페이지를 열지 못했습니다.")}}
 async function calculate(){const q=document.getElementById("calc").value.trim();if(!q){status("계산식을 입력해주세요.");return}status("계산 중");try{const r=await fetch("/calculate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expression:q})});const d=await r.json();const a=d.answer||d.error||"계산할 수 없습니다.";answer(a);status(d.error?"오류":"완료");if(!d.error)speak(a)}catch(e){status("계산 서버 연결 오류")}}
 async function getTime(){status("현재 시간을 확인하는 중");try{const d=await (await fetch("/time")).json();answer(d.answer||d.error);status("완료");speak(d.answer||d.error)}catch(e){status("시간 정보를 확인하지 못했습니다.")}}
@@ -418,6 +437,9 @@ def ask():
         data=request.get_json(silent=True) or {}
         question=str(data.get("question","")).strip()
         if not question:return jsonify({"error":"질문이 없습니다."}),400
+        history=data.get("history", [])
+        if not isinstance(history, list):
+            history=[]
         calc=extract_calculation(question)
         if calc:
             try:return jsonify({"answer":f"계산 결과는 {safe_calculate(calc)}입니다."})
@@ -439,7 +461,7 @@ def ask():
                 "answer": result["message"],
                 "search_url": result["url"]
             })
-        return jsonify({"answer": ask_vireonix(question)})
+        return jsonify({"answer": ask_vireonix(question, history)})
     except requests.HTTPError as error:
         if error.response is not None:
             try:detail=error.response.json()
