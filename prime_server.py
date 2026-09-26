@@ -69,6 +69,7 @@ button:hover {
     color: #66ccff;
 }
 </style>
+
 </head>
 
 <body>
@@ -77,22 +78,99 @@ button:hover {
 
 <p>PRIME V5 ONLINE</p>
 
-<input id="question" placeholder="PRIME에게 질문하세요">
+<input
+    id="question"
+    placeholder="PRIME에게 질문하세요"
+>
 
 <br>
 
-<button onclick="startListening()">🎙 말하기</button>
-<button onclick="askPrime()">질문하기</button>
-<button onclick="speakAnswer()">🔊 답변 듣기</button>
+<button onclick="startListening()">
+    🎙 말하기
+</button>
+
+<button onclick="askPrime()">
+    질문하기
+</button>
+
+<button onclick="speakAnswer()">
+    🔊 답변 듣기
+</button>
 
 <div id="status"></div>
+
 <div id="answer"></div>
 
 <script>
 
 let recognition = null;
 let lastAnswer = "";
+let selectedVoice = null;
 
+
+/* 음성 목록 불러오기 */
+
+function loadVoices() {
+
+    const voices =
+        window.speechSynthesis.getVoices();
+
+    if (!voices || voices.length === 0) {
+        return;
+    }
+
+    const koreanVoices =
+        voices.filter(function(voice) {
+
+            return voice.lang
+                .toLowerCase()
+                .startsWith("ko");
+
+        });
+
+
+    /* 남성으로 표시된 한국어 음성 우선 */
+
+    selectedVoice =
+        koreanVoices.find(function(voice) {
+
+            const name =
+                voice.name.toLowerCase();
+
+            return (
+                name.includes("male") ||
+                name.includes("man") ||
+                name.includes("남성") ||
+                name.includes("남자")
+            );
+
+        });
+
+
+    /* 남성 표시가 없으면 한국어 음성 사용 */
+
+    if (!selectedVoice &&
+        koreanVoices.length > 0) {
+
+        selectedVoice =
+            koreanVoices[0];
+
+    }
+
+}
+
+
+/* 아이폰에서 음성 목록이 늦게 로드되는 경우 */
+
+window.speechSynthesis.onvoiceschanged =
+    function() {
+
+        loadVoices();
+
+    };
+
+
+/* 음성 인식 */
 
 function startListening() {
 
@@ -100,102 +178,156 @@ function startListening() {
         window.SpeechRecognition ||
         window.webkitSpeechRecognition;
 
+
     if (!SpeechRecognition) {
 
         document.getElementById("status").innerText =
             "이 브라우저에서는 음성 인식을 지원하지 않습니다.";
 
         return;
+
     }
 
-    recognition = new SpeechRecognition();
 
-    recognition.lang = "ko-KR";
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition =
+        new SpeechRecognition();
+
+
+    recognition.lang =
+        "ko-KR";
+
+
+    recognition.continuous =
+        false;
+
+
+    recognition.interimResults =
+        false;
+
 
     document.getElementById("status").innerText =
         "PRIME이 듣고 있습니다...";
 
+
     try {
+
         recognition.start();
+
     } catch (error) {
+
         console.log(error);
+
     }
 
-    recognition.onresult = function(event) {
 
-        const text =
-            event.results[0][0].transcript;
+    recognition.onresult =
+        function(event) {
 
-        document.getElementById("question").value = text;
+            const text =
+                event.results[0][0].transcript;
 
-        document.getElementById("status").innerText =
-            "질문을 확인했습니다.";
 
-        askPrime();
-    };
+            document.getElementById("question").value =
+                text;
 
-    recognition.onerror = function(event) {
 
-        document.getElementById("status").innerText =
-            "마이크 오류: " + event.error;
-    };
+            document.getElementById("status").innerText =
+                "질문을 확인했습니다.";
+
+
+            askPrime();
+
+        };
+
+
+    recognition.onerror =
+        function(event) {
+
+            document.getElementById("status").innerText =
+                "마이크 오류: " + event.error;
+
+        };
+
 }
 
+
+/* PRIME에게 질문 */
 
 async function askPrime() {
 
     const question =
-        document.getElementById("question").value.trim();
+        document.getElementById("question")
+        .value
+        .trim();
+
 
     if (!question) {
         return;
     }
 
+
     document.getElementById("answer").innerText =
         "PRIME: 생각 중...";
+
 
     document.getElementById("status").innerText =
         "PRIME이 답변을 준비하고 있습니다...";
 
+
     try {
 
-        const response = await fetch("/ask", {
+        const response =
+            await fetch(
+                "/ask",
+                {
+                    method: "POST",
 
-            method: "POST",
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
 
-            headers: {
-                "Content-Type": "application/json"
-            },
+                    body: JSON.stringify({
+                        question: question
+                    })
+                }
+            );
 
-            body: JSON.stringify({
-                question: question
-            })
-        });
 
-        const data = await response.json();
+        const data =
+            await response.json();
 
-        lastAnswer = data.answer;
+
+        lastAnswer =
+            data.answer;
+
 
         document.getElementById("answer").innerText =
             "PRIME: " + lastAnswer;
 
+
         document.getElementById("status").innerText =
             "PRIME 온라인";
+
 
     } catch (error) {
 
         console.error(error);
 
+
         document.getElementById("answer").innerText =
             "PRIME: 서버 연결 오류";
 
+
         document.getElementById("status").innerText =
             "오류가 발생했습니다.";
+
     }
+
 }
 
+
+/* PRIME 음성 출력 */
 
 function speakAnswer() {
 
@@ -205,7 +337,9 @@ function speakAnswer() {
             "먼저 PRIME에게 질문해주세요.";
 
         return;
+
     }
+
 
     if (!("speechSynthesis" in window)) {
 
@@ -213,41 +347,101 @@ function speakAnswer() {
             "이 브라우저에서는 음성 출력을 지원하지 않습니다.";
 
         return;
+
     }
+
 
     window.speechSynthesis.cancel();
 
+
+    loadVoices();
+
+
     const speech =
-        new SpeechSynthesisUtterance(lastAnswer);
+        new SpeechSynthesisUtterance(
+            lastAnswer
+        );
 
-    speech.lang = "ko-KR";
-    speech.rate = 1.0;
-    speech.pitch = 1.0;
-    speech.volume = 1.0;
 
-    speech.onstart = function() {
+    speech.lang =
+        "ko-KR";
 
-        document.getElementById("status").innerText =
-            "PRIME이 말하고 있습니다...";
-    };
 
-    speech.onend = function() {
+    /*
+       JARVIS 느낌을 위한 설정
+       조금 느리고 낮은 음성
+    */
 
-        document.getElementById("status").innerText =
-            "PRIME 온라인";
-    };
+    speech.rate =
+        0.88;
 
-    speech.onerror = function(error) {
 
-        console.log(error);
+    speech.pitch =
+        0.72;
 
-        document.getElementById("status").innerText =
-            "음성 출력 오류";
-    };
 
-    window.speechSynthesis.speak(speech);
+    speech.volume =
+        1.0;
+
+
+    if (selectedVoice) {
+
+        speech.voice =
+            selectedVoice;
+
+    }
+
+
+    speech.onstart =
+        function() {
+
+            document.getElementById("status").innerText =
+                "PRIME이 말하고 있습니다...";
+
+        };
+
+
+    speech.onend =
+        function() {
+
+            document.getElementById("status").innerText =
+                "PRIME 온라인";
+
+        };
+
+
+    speech.onerror =
+        function(error) {
+
+            console.log(
+                "Speech error:",
+                error
+            );
+
+
+            document.getElementById("status").innerText =
+                "음성 출력 오류";
+
+        };
+
+
+    window.speechSynthesis.speak(
+        speech
+    );
+
 }
 
+
+/* 페이지가 열릴 때 음성 목록 확인 */
+
+window.addEventListener(
+    "load",
+    function() {
+
+        loadVoices();
+
+    }
+);
 
 </script>
 
@@ -267,7 +461,11 @@ def ask():
 
     data = request.json
 
-    question = data.get("question", "")
+    question = data.get(
+        "question",
+        ""
+    )
+
 
     try:
 
@@ -288,29 +486,57 @@ def ask():
 """,
 
             input=question
+
         )
 
+
         return jsonify({
-            "answer": response.output_text
+
+            "answer":
+                response.output_text
+
         })
+
 
     except Exception as e:
 
-        print("ERROR:", e)
+        print(
+            "ERROR:",
+            e
+        )
+
 
         return jsonify({
-            "answer": "오류가 발생했습니다."
+
+            "answer":
+                "오류가 발생했습니다."
+
         })
 
 
 if __name__ == "__main__":
 
-    print("==============================")
-    print(" PRIME V5 SERVER")
-    print("==============================")
-    print("PRIME 서버가 시작되었습니다.")
+    print(
+        "=============================="
+    )
+
+    print(
+        " PRIME V5 SERVER"
+    )
+
+    print(
+        "=============================="
+    )
+
+    print(
+        "PRIME 서버가 시작되었습니다."
+    )
+
 
     app.run(
+
         host="0.0.0.0",
+
         port=5000
+
     )
