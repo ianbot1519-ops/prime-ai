@@ -14,6 +14,7 @@ HTML = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>PRIME</title>
 
 <style>
@@ -52,6 +53,10 @@ button {
     cursor: pointer;
 }
 
+button:hover {
+    background: #00aaff;
+}
+
 #answer {
     margin: 30px auto;
     max-width: 600px;
@@ -78,6 +83,7 @@ button {
 
 <button onclick="startListening()">🎙 말하기</button>
 <button onclick="askPrime()">질문하기</button>
+<button onclick="speakAnswer()">🔊 답변 듣기</button>
 
 <div id="status"></div>
 <div id="answer"></div>
@@ -85,7 +91,8 @@ button {
 <script>
 
 let recognition = null;
-let isSpeaking = false;
+let lastAnswer = "";
+
 
 function startListening() {
 
@@ -94,8 +101,10 @@ function startListening() {
         window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
+
         document.getElementById("status").innerText =
             "이 브라우저에서는 음성 인식을 지원하지 않습니다.";
+
         return;
     }
 
@@ -132,16 +141,6 @@ function startListening() {
         document.getElementById("status").innerText =
             "마이크 오류: " + event.error;
     };
-
-    recognition.onend = function() {
-
-        if (
-            document.getElementById("status").innerText
-            === "PRIME이 듣고 있습니다..."
-        ) {
-            document.getElementById("status").innerText = "";
-        }
-    };
 }
 
 
@@ -150,7 +149,9 @@ async function askPrime() {
     const question =
         document.getElementById("question").value.trim();
 
-    if (!question) return;
+    if (!question) {
+        return;
+    }
 
     document.getElementById("answer").innerText =
         "PRIME: 생각 중...";
@@ -161,10 +162,13 @@ async function askPrime() {
     try {
 
         const response = await fetch("/ask", {
+
             method: "POST",
+
             headers: {
                 "Content-Type": "application/json"
             },
+
             body: JSON.stringify({
                 question: question
             })
@@ -172,13 +176,13 @@ async function askPrime() {
 
         const data = await response.json();
 
+        lastAnswer = data.answer;
+
         document.getElementById("answer").innerText =
-            "PRIME: " + data.answer;
+            "PRIME: " + lastAnswer;
 
         document.getElementById("status").innerText =
             "PRIME 온라인";
-
-        speakAnswer(data.answer);
 
     } catch (error) {
 
@@ -193,45 +197,57 @@ async function askPrime() {
 }
 
 
-function speakAnswer(text) {
+function speakAnswer() {
 
-    if (!window.speechSynthesis) {
+    if (!lastAnswer) {
+
+        document.getElementById("status").innerText =
+            "먼저 PRIME에게 질문해주세요.";
+
+        return;
+    }
+
+    if (!("speechSynthesis" in window)) {
+
         document.getElementById("status").innerText =
             "이 브라우저에서는 음성 출력을 지원하지 않습니다.";
+
         return;
     }
 
     window.speechSynthesis.cancel();
 
-    const utterance =
-        new SpeechSynthesisUtterance(text);
+    const speech =
+        new SpeechSynthesisUtterance(lastAnswer);
 
-    utterance.lang = "ko-KR";
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
+    speech.lang = "ko-KR";
+    speech.rate = 1.0;
+    speech.pitch = 1.0;
+    speech.volume = 1.0;
 
-    utterance.onstart = function() {
-        isSpeaking = true;
+    speech.onstart = function() {
+
         document.getElementById("status").innerText =
             "PRIME이 말하고 있습니다...";
     };
 
-    utterance.onend = function() {
-        isSpeaking = false;
+    speech.onend = function() {
+
         document.getElementById("status").innerText =
             "PRIME 온라인";
     };
 
-    utterance.onerror = function(event) {
-        isSpeaking = false;
-        console.error("Speech error:", event);
+    speech.onerror = function(error) {
+
+        console.log(error);
+
         document.getElementById("status").innerText =
             "음성 출력 오류";
     };
 
-    window.speechSynthesis.speak(utterance);
+    window.speechSynthesis.speak(speech);
 }
+
 
 </script>
 
@@ -242,6 +258,7 @@ function speakAnswer(text) {
 
 @app.route("/")
 def home():
+
     return render_template_string(HTML)
 
 
@@ -249,11 +266,13 @@ def home():
 def ask():
 
     data = request.json
+
     question = data.get("question", "")
 
     try:
 
         response = client.responses.create(
+
             model="gpt-6-luna",
 
             instructions="""
