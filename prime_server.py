@@ -3,6 +3,7 @@ import re
 import ast
 import operator
 import requests
+from urllib.parse import quote_plus
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, render_template_string
@@ -63,6 +64,84 @@ def is_time_question(q):
 
 def is_date_question(q):
     return any(x in q for x in ["오늘 날짜", "오늘이 며칠", "오늘 며칠", "몇 월 며칠", "몇월 며칠", "현재 날짜"])
+
+
+def extract_search_query(q):
+    cleaned = re.sub(r"^(프라임[,\s]*)", "", q.strip(), flags=re.I)
+    patterns = [
+        r"(?:인터넷에서|웹에서|온라인에서)\s*(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$",
+        r"(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, cleaned, flags=re.I)
+        if m:
+            query = m.group(1).strip(" :：")
+            if query:
+                return query
+    return None
+
+def web_search(query):
+    if len(query) > 300:
+        query = query[:300]
+
+    params = {
+        "q": query,
+        "format": "json",
+        "no_html": "1",
+        "no_redirect": "1",
+        "skip_disambig": "1",
+    }
+    r = requests.get(
+        "https://api.duckduckgo.com/",
+        params=params,
+        headers={"User-Agent": "PRIME/14.0"},
+        timeout=15,
+    )
+    r.raise_for_status()
+    data = r.json()
+
+    answer = data.get("Answer")
+    abstract = data.get("AbstractText")
+    heading = data.get("Heading")
+    source = data.get("AbstractSource")
+    source_url = data.get("AbstractURL")
+
+    if isinstance(answer, str) and answer.strip():
+        text = answer.strip()
+        if source_url:
+            text += f"\n출처: {source_url}"
+        return text
+
+    if isinstance(abstract, str) and abstract.strip():
+        text = abstract.strip()
+        if source:
+            text += f"\n출처: {source}"
+        if source_url:
+            text += f"\n출처 링크: {source_url}"
+        return text
+
+    related = data.get("RelatedTopics") or []
+    results = []
+    for item in related:
+        if isinstance(item, dict) and item.get("Text") and item.get("FirstURL"):
+            results.append((item["Text"].strip(), item["FirstURL"]))
+        elif isinstance(item, dict) and isinstance(item.get("Topics"), list):
+            for sub in item["Topics"]:
+                if isinstance(sub, dict) and sub.get("Text") and sub.get("FirstURL"):
+                    results.append((sub["Text"].strip(), sub["FirstURL"]))
+        if len(results) >= 5:
+            break
+
+    if results:
+        lines = [f"검색 결과: {query}"]
+        if heading:
+            lines.append(f"관련 주제: {heading}")
+        for i, (title, url) in enumerate(results, 1):
+            lines.append(f"{i}. {title}\n링크: {url}")
+        return "\n".join(lines)
+
+    search_url = "https://duckduckgo.com/?q=" + quote_plus(query)
+    return f"검색 결과 요약을 찾지 못했습니다.\n검색 페이지: {search_url}"
 
 def safe_calculate(expression):
     expression = expression.strip()
@@ -143,13 +222,13 @@ video{width:100%;border-radius:12px;margin-top:8px;display:none}
 <body>
 <div class="wrap">
 <h1>PRIME</h1>
-<div class="sub">Personal Response &amp; Intelligence Management Engine V13</div>
+<div class="sub">Personal Response &amp; Intelligence Management Engine V14</div>
 <button onclick="startWake()">PRIME 호출 대기</button>
 <button onclick="askVoice()">말하기</button>
 <textarea id="question" placeholder="질문을 입력하세요"></textarea>
 <button onclick="askText()">질문하기</button>
 <input id="calc" placeholder="계산식 예: 25 + 37">
-<button onclick="calculate()">계산하기</button>
+<button onclick="calculate()">계산하기</button> <input id="search" placeholder="검색어"> <button onclick="webSearch()">웹 검색</button>
 <button onclick="getTime()">현재 시간</button>
 <button onclick="getDate()">오늘 날짜</button>
 <button onclick="getWeather()">날씨</button>
@@ -206,6 +285,9 @@ def ask():
             except (ValueError, ZeroDivisionError):pass
         if is_time_question(question):return jsonify({"answer":make_time_answer()})
         if is_date_question(question):return jsonify({"answer":make_date_answer()})
+        search_query = extract_search_query(question)
+        if search_query:
+            return jsonify({"answer":web_search(search_query)})
         return jsonify({"answer":ask_vireonix(question)})
     except requests.HTTPError as error:
         if error.response is not None:
@@ -217,6 +299,19 @@ def ask():
         return jsonify({"error":"Vireonix 연결 오류: "+str(error)}),502
     except Exception as error:
         return jsonify({"error":"AI 오류: "+str(error)}),500
+
+@app.route("/search", methods=["POST"])
+def search_route():
+    try:
+        data = request.get_json(silent=True) or {}
+        query = str(data.get("query", "")).strip()
+        if not query:
+            return jsonify({"error": "검색어를 입력해주세요."}), 400
+        return jsonify({"answer": web_search(query)})
+    except requests.RequestException as error:
+        return jsonify({"error": "웹 검색 서버 연결 오류: " + str(error)}), 502
+    except Exception as error:
+        return jsonify({"error": "웹 검색 오류: " + str(error)}), 500
 
 @app.route("/calculate", methods=["POST"])
 def calculate_route():
