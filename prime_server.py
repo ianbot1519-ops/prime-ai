@@ -69,36 +69,70 @@ def is_date_question(q):
 
 def extract_search_query(q):
     cleaned = re.sub(r"^(프라임[,\s]*)", "", q.strip(), flags=re.I)
+
+    # 사이트를 직접 열어 달라는 명령
+    m = re.fullmatch(
+        r"(네이버|naver)\s*(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*",
+        cleaned,
+        flags=re.I,
+    )
+    if m:
+        return "__NAVER_HOME__"
+
+    m = re.fullmatch(
+        r"(구글|google)\s*(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*",
+        cleaned,
+        flags=re.I,
+    )
+    if m:
+        return "__GOOGLE_HOME__"
+
+    # 특정 검색 사이트에서 검색
     patterns = [
-        r"(?:인터넷에서|웹에서|온라인에서)\s*(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$",
-        r"(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$",
+        (r"(?:네이버|naver)\s*(?:에서)?\s*(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$", "naver"),
+        (r"(?:구글|google)\s*(?:에서)?\s*(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$", "google"),
+        (r"(?:인터넷에서|웹에서|온라인에서)\s*(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$", "google"),
+        (r"(?:검색해줘|검색해 줘|검색해|찾아줘|찾아 줘|찾아)\s*(.*)$", "google"),
     ]
-    for pattern in patterns:
+
+    for pattern, engine in patterns:
         m = re.search(pattern, cleaned, flags=re.I)
         if m:
             query = m.group(1).strip(" :：")
             if query:
-                return query
+                return f"__{engine.upper()}__:{query}"
     return None
 
 def web_search(query):
-    """외부 검색 서버를 PRIME의 Flask 워커가 직접 기다리지 않도록 검색 주소만 만든다."""
+    """외부 검색 서버를 기다리지 않고 검색 주소만 만든다."""
     query = str(query).strip()
+
+    if query == "__NAVER_HOME__":
+        return {"message": "네이버 검색 페이지를 엽니다.", "url": "https://www.naver.com/"}
+
+    if query == "__GOOGLE_HOME__":
+        return {"message": "구글 검색 페이지를 엽니다.", "url": "https://www.google.com/"}
+
+    engine = "google"
+    if query.startswith("__NAVER__:"):
+        engine = "naver"
+        query = query.split(":", 1)[1].strip()
+    elif query.startswith("__GOOGLE__:"):
+        query = query.split(":", 1)[1].strip()
+
     if len(query) > 300:
         query = query[:300]
 
+    if engine == "naver":
+        url = "https://search.naver.com/search.naver?query=" + quote_plus(query)
+        return {"message": f"네이버에서 {query}를 검색합니다.", "url": url}
+
     if any(word in query for word in ["뉴스", "기사", "속보", "시사"]):
         url = "https://www.google.com/search?tbm=nws&q=" + quote_plus(query)
-        return {
-            "message": f"뉴스 검색을 준비했습니다: {query}",
-            "url": url
-        }
+        return {"message": f"뉴스 검색 페이지를 엽니다: {query}", "url": url}
 
     url = "https://www.google.com/search?q=" + quote_plus(query)
-    return {
-        "message": f"웹 검색을 준비했습니다: {query}",
-        "url": url
-    }
+    return {"message": f"웹 검색 페이지를 엽니다: {query}", "url": url}
 
 def safe_calculate(expression):
     expression = expression.strip()
