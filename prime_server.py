@@ -11,15 +11,12 @@ client = OpenAI(
 HTML = """
 <!DOCTYPE html>
 <html lang="ko">
-
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>PRIME</title>
 
 <style>
-
 body {
     background: #050505;
     color: #00aaff;
@@ -45,18 +42,14 @@ input {
 }
 
 button {
-    margin-top: 15px;
-    padding: 14px 30px;
+    margin: 10px 5px;
+    padding: 14px 25px;
     font-size: 18px;
     background: #0088cc;
     color: white;
     border: none;
     border-radius: 8px;
     cursor: pointer;
-}
-
-button:hover {
-    background: #00aaff;
 }
 
 #answer {
@@ -69,9 +62,7 @@ button:hover {
 #status {
     margin-top: 15px;
     color: #66ccff;
-    font-size: 16px;
 }
-
 </style>
 </head>
 
@@ -81,29 +72,20 @@ button:hover {
 
 <p>PRIME V5 ONLINE</p>
 
-<input
-    id="question"
-    placeholder="PRIME에게 질문하세요"
->
+<input id="question" placeholder="PRIME에게 질문하세요">
 
 <br>
 
-<button onclick="startListening()">
-    🎙 말하기
-</button>
-
-<button onclick="askPrime()">
-    질문하기
-</button>
+<button onclick="startListening()">🎙 말하기</button>
+<button onclick="askPrime()">질문하기</button>
 
 <div id="status"></div>
-
 <div id="answer"></div>
-
 
 <script>
 
-let recognition;
+let recognition = null;
+let isSpeaking = false;
 
 function startListening() {
 
@@ -112,26 +94,25 @@ function startListening() {
         window.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-
         document.getElementById("status").innerText =
             "이 브라우저에서는 음성 인식을 지원하지 않습니다.";
-
         return;
     }
 
     recognition = new SpeechRecognition();
 
     recognition.lang = "ko-KR";
-
     recognition.continuous = false;
-
     recognition.interimResults = false;
 
     document.getElementById("status").innerText =
         "PRIME이 듣고 있습니다...";
 
-    recognition.start();
-
+    try {
+        recognition.start();
+    } catch (error) {
+        console.log(error);
+    }
 
     recognition.onresult = function(event) {
 
@@ -146,13 +127,11 @@ function startListening() {
         askPrime();
     };
 
-
     recognition.onerror = function(event) {
 
         document.getElementById("status").innerText =
             "마이크 오류: " + event.error;
     };
-
 
     recognition.onend = function() {
 
@@ -160,8 +139,7 @@ function startListening() {
             document.getElementById("status").innerText
             === "PRIME이 듣고 있습니다..."
         ) {
-            document.getElementById("status").innerText =
-                "";
+            document.getElementById("status").innerText = "";
         }
     };
 }
@@ -170,10 +148,9 @@ function startListening() {
 async function askPrime() {
 
     const question =
-        document.getElementById("question").value;
+        document.getElementById("question").value.trim();
 
     if (!question) return;
-
 
     document.getElementById("answer").innerText =
         "PRIME: 생각 중...";
@@ -181,72 +158,79 @@ async function askPrime() {
     document.getElementById("status").innerText =
         "PRIME이 답변을 준비하고 있습니다...";
 
-
     try {
 
         const response = await fetch("/ask", {
-
             method: "POST",
-
             headers: {
                 "Content-Type": "application/json"
             },
-
             body: JSON.stringify({
                 question: question
             })
         });
 
-
         const data = await response.json();
 
-        const answer =
-            "PRIME: " + data.answer;
-
-
         document.getElementById("answer").innerText =
-            answer;
+            "PRIME: " + data.answer;
 
         document.getElementById("status").innerText =
             "PRIME 온라인";
 
+        speakAnswer(data.answer);
 
-        speak(data.answer);
+    } catch (error) {
 
-    }
-
-    catch (error) {
+        console.error(error);
 
         document.getElementById("answer").innerText =
             "PRIME: 서버 연결 오류";
 
         document.getElementById("status").innerText =
             "오류가 발생했습니다.";
-
     }
 }
 
 
-function speak(text) {
+function speakAnswer(text) {
 
-    if (!("speechSynthesis" in window)) {
+    if (!window.speechSynthesis) {
+        document.getElementById("status").innerText =
+            "이 브라우저에서는 음성 출력을 지원하지 않습니다.";
         return;
     }
 
     window.speechSynthesis.cancel();
 
-    const speech =
+    const utterance =
         new SpeechSynthesisUtterance(text);
 
-    speech.lang = "ko-KR";
+    utterance.lang = "ko-KR";
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
 
-    speech.rate = 1.0;
+    utterance.onstart = function() {
+        isSpeaking = true;
+        document.getElementById("status").innerText =
+            "PRIME이 말하고 있습니다...";
+    };
 
-    speech.pitch = 1.0;
+    utterance.onend = function() {
+        isSpeaking = false;
+        document.getElementById("status").innerText =
+            "PRIME 온라인";
+    };
 
-    speech.volume = 1.0;
+    utterance.onerror = function(event) {
+        isSpeaking = false;
+        console.error("Speech error:", event);
+        document.getElementById("status").innerText =
+            "음성 출력 오류";
+    };
 
-    window.speechSynthesis.speak(speech);
+    window.speechSynthesis.speak(utterance);
 }
 
 </script>
@@ -258,7 +242,6 @@ function speak(text) {
 
 @app.route("/")
 def home():
-
     return render_template_string(HTML)
 
 
@@ -266,13 +249,11 @@ def home():
 def ask():
 
     data = request.json
-
     question = data.get("question", "")
 
     try:
 
         response = client.responses.create(
-
             model="gpt-6-luna",
 
             instructions="""
@@ -309,8 +290,6 @@ if __name__ == "__main__":
     print(" PRIME V5 SERVER")
     print("==============================")
     print("PRIME 서버가 시작되었습니다.")
-    print("컴퓨터에서 http://127.0.0.1:5000")
-    print("")
 
     app.run(
         host="0.0.0.0",
