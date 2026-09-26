@@ -117,21 +117,26 @@ def get_weather_by_city(city):
     if len(city) > 50:
         city = city[:50]
 
-    geo = requests.get(
-        "https://geocoding-api.open-meteo.com/v1/search",
-        params={"name": city, "count": 1, "language": "ko", "format": "json"},
-        timeout=5,
-    )
-    geo.raise_for_status()
-    geo_data = geo.json()
-    results = geo_data.get("results") or []
-    if not results:
-        raise ValueError(f"{city} 지역을 찾을 수 없습니다.")
+    # 한국 주요 도시는 지오코딩 서버를 거치지 않고 직접 좌표를 사용한다.
+    direct = resolve_korean_city(city)
+    if direct:
+        place_name, latitude, longitude = direct
+    else:
+        geo = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1, "language": "ko", "format": "json"},
+            timeout=5,
+        )
+        geo.raise_for_status()
+        geo_data = geo.json()
+        results = geo_data.get("results") or []
+        if not results:
+            raise ValueError(f"{city} 지역을 찾을 수 없습니다.")
 
-    place = results[0]
-    latitude = float(place["latitude"])
-    longitude = float(place["longitude"])
-    place_name = place.get("name", city)
+        place = results[0]
+        latitude = float(place["latitude"])
+        longitude = float(place["longitude"])
+        place_name = place.get("name", city)
 
     forecast = requests.get(
         "https://api.open-meteo.com/v1/forecast",
