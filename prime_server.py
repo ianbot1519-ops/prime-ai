@@ -76,6 +76,12 @@ button:hover {
     color: #66ccff;
 }
 
+#wakeStatus {
+    margin-top: 20px;
+    color: #00ffcc;
+    font-size: 18px;
+}
+
 </style>
 
 </head>
@@ -84,7 +90,7 @@ button:hover {
 
 <h1>PRIME</h1>
 
-<p>PRIME V6 ONLINE</p>
+<p>PRIME V7 ONLINE</p>
 
 <input
     id="question"
@@ -93,8 +99,12 @@ button:hover {
 
 <br>
 
+<button onclick="startWakeWord()">
+    PRIME 호출 대기
+</button>
+
 <button onclick="startListening()">
-    🎙 말하기
+    말하기
 </button>
 
 <button onclick="askPrime()">
@@ -102,8 +112,12 @@ button:hover {
 </button>
 
 <button onclick="speakAnswer()">
-    🔊 답변 듣기
+    답변 듣기
 </button>
+
+<div id="wakeStatus">
+    PRIME 호출 대기 꺼짐
+</div>
 
 <div id="status"></div>
 
@@ -115,6 +129,9 @@ button:hover {
 let recognition = null;
 let lastAnswer = "";
 let selectedVoice = null;
+
+let wakeWordMode = false;
+let waitingForQuestion = false;
 
 
 // ==========================================
@@ -136,11 +153,12 @@ function loadVoices() {
     });
 
     if (koreanVoices.length === 0) {
+
         selectedVoice = null;
+
         return;
     }
 
-    // 이름에 남성 표시가 있는 음성을 우선 사용
     selectedVoice = koreanVoices.find(function(voice) {
 
         const name = voice.name.toLowerCase();
@@ -154,9 +172,10 @@ function loadVoices() {
 
     });
 
-    // 남성 표시가 없으면 첫 번째 한국어 음성 사용
     if (!selectedVoice) {
+
         selectedVoice = koreanVoices[0];
+
     }
 }
 
@@ -169,7 +188,250 @@ window.speechSynthesis.onvoiceschanged = function() {
 
 
 // ==========================================
-// 음성 인식
+// PRIME 호출 대기 시작
+// ==========================================
+
+function startWakeWord() {
+
+    const SpeechRecognition =
+        window.SpeechRecognition ||
+        window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+
+        document.getElementById("status").innerText =
+            "이 브라우저에서는 음성 인식을 지원하지 않습니다.";
+
+        return;
+    }
+
+    wakeWordMode = true;
+    waitingForQuestion = false;
+
+    document.getElementById("wakeStatus").innerText =
+        "PRIME 호출 대기 중...";
+
+    document.getElementById("status").innerText =
+        "PRIME이라고 말해보세요.";
+
+    startWakeRecognition();
+
+}
+
+
+// ==========================================
+// 호출어 인식
+// ==========================================
+
+function startWakeRecognition() {
+
+    if (!wakeWordMode) {
+        return;
+    }
+
+    const SpeechRecognition =
+        window.SpeechRecognition ||
+        window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        return;
+    }
+
+    recognition = new SpeechRecognition();
+
+    recognition.lang = "ko-KR";
+
+    recognition.continuous = false;
+
+    recognition.interimResults = false;
+
+    try {
+
+        recognition.start();
+
+    } catch (error) {
+
+        console.log(error);
+
+    }
+
+
+    recognition.onresult = function(event) {
+
+        const text =
+            event.results[0][0].transcript.trim();
+
+        console.log("인식:", text);
+
+
+        // PRIME 호출 감지
+        if (
+            text.includes("PRIME") ||
+            text.includes("프라임") ||
+            text.includes("프라임아") ||
+            text.includes("프라임 이")
+        ) {
+
+            wakeWordMode = false;
+
+            waitingForQuestion = true;
+
+            document.getElementById("wakeStatus").innerText =
+                "PRIME 활성화";
+
+            document.getElementById("status").innerText =
+                "네. 말씀하세요.";
+
+            speakText("네. 말씀하세요.");
+
+            setTimeout(function() {
+
+                startQuestionListening();
+
+            }, 1200);
+
+        } else {
+
+            // 호출어가 아니면 다시 대기
+            document.getElementById("status").innerText =
+                "PRIME 호출을 기다리고 있습니다.";
+
+            setTimeout(function() {
+
+                startWakeRecognition();
+
+            }, 300);
+
+        }
+
+    };
+
+
+    recognition.onerror = function(event) {
+
+        console.log("Wake error:", event.error);
+
+
+        if (event.error === "not-allowed") {
+
+            document.getElementById("wakeStatus").innerText =
+                "마이크 권한이 필요합니다.";
+
+            document.getElementById("status").innerText =
+                "브라우저에서 마이크 권한을 허용해주세요.";
+
+            return;
+        }
+
+
+        if (wakeWordMode) {
+
+            setTimeout(function() {
+
+                startWakeRecognition();
+
+            }, 500);
+
+        }
+
+    };
+
+
+    recognition.onend = function() {
+
+        if (wakeWordMode) {
+
+            setTimeout(function() {
+
+                startWakeRecognition();
+
+            }, 300);
+
+        }
+
+    };
+
+}
+
+
+// ==========================================
+// PRIME 호출 후 질문 듣기
+// ==========================================
+
+function startQuestionListening() {
+
+    const SpeechRecognition =
+        window.SpeechRecognition ||
+        window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        return;
+    }
+
+    recognition = new SpeechRecognition();
+
+    recognition.lang = "ko-KR";
+
+    recognition.continuous = false;
+
+    recognition.interimResults = false;
+
+
+    document.getElementById("status").innerText =
+        "듣고 있습니다...";
+
+
+    try {
+
+        recognition.start();
+
+    } catch (error) {
+
+        console.log(error);
+
+    }
+
+
+    recognition.onresult = function(event) {
+
+        const text =
+            event.results[0][0].transcript.trim();
+
+        waitingForQuestion = false;
+
+        document.getElementById("question").value =
+            text;
+
+        document.getElementById("status").innerText =
+            "질문을 확인했습니다.";
+
+        askPrime();
+
+    };
+
+
+    recognition.onerror = function(event) {
+
+        console.log("Question error:", event.error);
+
+        waitingForQuestion = false;
+
+        document.getElementById("status").innerText =
+            "음성 인식 오류";
+
+        setTimeout(function() {
+
+            startWakeWord();
+
+        }, 1000);
+
+    };
+
+}
+
+
+// ==========================================
+// 기존 말하기 버튼
 // ==========================================
 
 function startListening() {
@@ -219,6 +481,7 @@ function startListening() {
             "질문을 확인했습니다.";
 
         askPrime();
+
     };
 
     recognition.onerror = function(event) {
@@ -227,11 +490,12 @@ function startListening() {
             "마이크 오류: " + event.error;
 
     };
+
 }
 
 
 // ==========================================
-// PRIME에게 질문
+// PRIME AI 질문
 // ==========================================
 
 async function askPrime() {
@@ -243,11 +507,13 @@ async function askPrime() {
         return;
     }
 
+
     document.getElementById("answer").innerText =
         "PRIME: 생각 중...";
 
     document.getElementById("status").innerText =
         "PRIME이 답변을 준비하고 있습니다...";
+
 
     try {
 
@@ -266,22 +532,40 @@ async function askPrime() {
             }
         );
 
+
         const data = await response.json();
 
         lastAnswer = data.answer;
 
+
         document.getElementById("answer").innerText =
             "PRIME: " + lastAnswer;
+
 
         document.getElementById("status").innerText =
             "PRIME 온라인";
 
-        // 답변이 나오면 자동으로 음성 출력
+
+        // 자동 음성 출력
         speakAnswer();
+
+
+        // 답변이 끝나면 다시 호출 대기
+        setTimeout(function() {
+
+            if (wakeWordMode === false) {
+
+                startWakeWord();
+
+            }
+
+        }, 1500);
+
 
     } catch (error) {
 
         console.error(error);
+
 
         document.getElementById("answer").innerText =
             "PRIME: 서버 연결 오류";
@@ -290,11 +574,52 @@ async function askPrime() {
             "오류가 발생했습니다.";
 
     }
+
 }
 
 
 // ==========================================
-// 브라우저 음성 출력
+// 텍스트를 음성으로 읽기
+// ==========================================
+
+function speakText(text) {
+
+    if (!("speechSynthesis" in window)) {
+        return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    loadVoices();
+
+
+    const speech =
+        new SpeechSynthesisUtterance(text);
+
+
+    speech.lang = "ko-KR";
+
+    speech.rate = 0.95;
+
+    speech.pitch = 0.75;
+
+    speech.volume = 1.0;
+
+
+    if (selectedVoice) {
+
+        speech.voice = selectedVoice;
+
+    }
+
+
+    window.speechSynthesis.speak(speech);
+
+}
+
+
+// ==========================================
+// PRIME 답변 음성 출력
 // ==========================================
 
 function speakAnswer() {
@@ -307,6 +632,7 @@ function speakAnswer() {
         return;
     }
 
+
     if (!("speechSynthesis" in window)) {
 
         document.getElementById("status").innerText =
@@ -315,26 +641,31 @@ function speakAnswer() {
         return;
     }
 
+
     window.speechSynthesis.cancel();
 
     loadVoices();
 
+
     const speech =
         new SpeechSynthesisUtterance(lastAnswer);
 
+
     speech.lang = "ko-KR";
 
-    // 말하는 속도
     speech.rate = 0.95;
 
-    // 조금 낮은 음색
     speech.pitch = 0.75;
 
     speech.volume = 1.0;
 
+
     if (selectedVoice) {
+
         speech.voice = selectedVoice;
+
     }
+
 
     speech.onstart = function() {
 
@@ -343,12 +674,14 @@ function speakAnswer() {
 
     };
 
+
     speech.onend = function() {
 
         document.getElementById("status").innerText =
             "PRIME 온라인";
 
     };
+
 
     speech.onerror = function(error) {
 
@@ -359,7 +692,9 @@ function speakAnswer() {
 
     };
 
+
     window.speechSynthesis.speak(speech);
+
 }
 
 
@@ -402,6 +737,7 @@ def ask():
 
     question = data.get("question", "").strip()
 
+
     if not question:
 
         return jsonify({
@@ -437,9 +773,12 @@ def ask():
 """,
 
             input=question
+
         )
 
+
         answer = response.output_text
+
 
         return jsonify({
             "answer": answer
@@ -449,6 +788,7 @@ def ask():
     except Exception as e:
 
         print("ERROR:", e)
+
 
         return jsonify({
             "answer": "오류가 발생했습니다."
@@ -462,9 +802,11 @@ def ask():
 if __name__ == "__main__":
 
     print("==============================")
-    print(" PRIME V6 SERVER")
+    print(" PRIME V7 SERVER")
     print("==============================")
+
     print("PRIME 서버가 시작되었습니다.")
+
 
     app.run(
         host="0.0.0.0",
