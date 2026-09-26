@@ -417,7 +417,7 @@ try{
 </head>
 <body>
 <div class="wrap">
-<h1>PRIME</h1><div class="sub">Personal Response &amp; Intelligence Management Engine V16.6</div>
+<h1>PRIME</h1><div class="sub">Personal Response &amp; Intelligence Management Engine V16.7</div>
 <div id="screenLinkPanel" class="panel screen-link" style="display:none"><b>휴대폰 화면 연동</b><div id="screenLinkState">PRIME 화면이 이 휴대폰에 표시되고 있습니다.</div><button onclick="exitScreenLink()">화면 연동 해제</button></div>
 <div class="panel"><b>기기 제어</b><div id="deviceState" class="small">휴대폰을 PRIME의 제어 브리지로 사용할 수 있습니다.</div><button onclick="deviceShortcut('tv_on')">TV 켜기</button><button onclick="deviceShortcut('tv_off')">TV 끄기</button><button onclick="deviceShortcut('pc_on')">컴퓨터 켜기</button><button onclick="deviceShortcut('pc_off')">컴퓨터 끄기</button><button onclick="deviceShortcut('laptop_on')">노트북 켜기</button><button onclick="deviceShortcut('laptop_off')">노트북 끄기</button></div>
 <button onclick="startWake()">PRIME 호출 대기</button><button onclick="askVoice()">말하기</button>
@@ -445,7 +445,27 @@ function saveConversationHistory(){try{localStorage.setItem(MEMORY_KEY,JSON.stri
 function rememberTurn(q,a){conversationHistory.push({role:"user",content:String(q).slice(0,1500)},{role:"assistant",content:String(a).slice(0,1500)});conversationHistory=conversationHistory.slice(-12);saveConversationHistory()}
 function clearConversationMemory(){conversationHistory=[];try{localStorage.removeItem(MEMORY_KEY)}catch(e){}answer("대화 기억을 지웠습니다.");status("기억 삭제 완료")}
 function status(t){document.getElementById("status").textContent=t}function answer(t){lastAnswer=t;document.getElementById("answer").textContent=t}
-function speak(t){if(!("speechSynthesis" in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang="ko-KR";u.rate=.92;u.pitch=.78;const v=speechSynthesis.getVoices().filter(x=>x.lang&&x.lang.toLowerCase().startsWith("ko"));if(v.length)u.voice=v[0];speechSynthesis.speak(u)}
+function selectPrimeVoice(){
+  if(!('speechSynthesis' in window))return null;
+  const voices=speechSynthesis.getVoices().filter(v=>v.lang&&v.lang.toLowerCase().startsWith('ko'));
+  if(!voices.length)return null;
+  const preferred=['Google 한국의','Microsoft Heami','Microsoft SunHi','Yuna','Seoyeon','Jihyun'];
+  for(const name of preferred){const hit=voices.find(v=>v.name&&v.name.toLowerCase().includes(name.toLowerCase()));if(hit)return hit;}
+  return voices.find(v=>/neural|natural|online/i.test(v.name||'')) || voices[0];
+}
+function speak(t){
+  if(!('speechSynthesis' in window))return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(String(t||''));
+  u.lang='ko-KR';
+  u.rate=0.88;
+  u.pitch=0.72;
+  u.volume=1.0;
+  const v=selectPrimeVoice();
+  if(v)u.voice=v;
+  speechSynthesis.speak(u);
+}
+speechSynthesis&&speechSynthesis.addEventListener&&speechSynthesis.addEventListener('voiceschanged',()=>selectPrimeVoice());
 function speakAnswer(){if(lastAnswer)speak(lastAnswer)}
 function makeRecognition(){const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){status("이 브라우저는 음성 인식을 지원하지 않습니다.");return null}const r=new R();r.lang="ko-KR";r.interimResults=false;r.continuous=false;return r}
 function startWake(){recognition=makeRecognition();if(!recognition)return;status("PRIME 호출을 기다리는 중");recognition.onresult=e=>{const t=e.results[0][0].transcript.trim().toLowerCase();if(t.includes("prime")||t.includes("프라임")){status("호출 확인. 말씀하세요.");speak("호출 확인. 말씀하세요.");setTimeout(askVoice,900)}else status("PRIME이라고 말씀해주세요.")};recognition.onerror=()=>status("호출 대기가 종료되었습니다.");try{recognition.start()}catch(e){status("음성 인식을 시작할 수 없습니다.")}}
@@ -497,7 +517,7 @@ def home():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "version": "16.6"})
+    return jsonify({"status": "ok", "version": "16.7"})
 
 
 @app.route("/ask", methods=["POST"])
@@ -633,4 +653,4 @@ def weather_route():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
 
-# PRIME V16.6 - AI stability/retry hardening release.
+# PRIME V16.7 - AI stability/retry hardening release.
