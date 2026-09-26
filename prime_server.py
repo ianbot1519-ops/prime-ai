@@ -1,6 +1,9 @@
 import os
-from flask import Flask, request, jsonify, render_template_string
+import io
+
+from flask import Flask, request, jsonify, render_template_string, send_file
 from openai import OpenAI
+
 
 app = Flask(__name__)
 
@@ -8,12 +11,15 @@ client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
 
+
 HTML = """
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
 
 <meta charset="UTF-8">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>PRIME</title>
@@ -75,6 +81,7 @@ button:hover {
 
 </head>
 
+
 <body>
 
 <h1>PRIME</h1>
@@ -104,92 +111,17 @@ button:hover {
 
 <div id="answer"></div>
 
+
 <script>
 
 let recognition = null;
 let lastAnswer = "";
-let selectedVoice = null;
+let currentAudio = null;
 
 
-/*
-    음성 목록 확인
-*/
-
-function loadVoices() {
-
-    const voices =
-        window.speechSynthesis.getVoices();
-
-    if (!voices || voices.length === 0) {
-        return;
-    }
-
-    /*
-        한국어 음성만 찾음
-    */
-
-    const koreanVoices =
-        voices.filter(function(voice) {
-
-            return voice.lang
-                .toLowerCase()
-                .startsWith("ko");
-
-        });
-
-
-    /*
-        우선적으로 남성으로 표시된 음성을 찾음
-    */
-
-    selectedVoice =
-        koreanVoices.find(function(voice) {
-
-            const name =
-                voice.name.toLowerCase();
-
-            return (
-                name.includes("male") ||
-                name.includes("man") ||
-                name.includes("남성") ||
-                name.includes("남자")
-            );
-
-        });
-
-
-    /*
-        남성 표시가 없으면
-        한국어 음성을 사용
-    */
-
-    if (!selectedVoice &&
-        koreanVoices.length > 0) {
-
-        selectedVoice =
-            koreanVoices[0];
-
-    }
-
-}
-
-
-/*
-    아이폰에서 음성 목록이
-    늦게 나타나는 경우
-*/
-
-window.speechSynthesis.onvoiceschanged =
-    function() {
-
-        loadVoices();
-
-    };
-
-
-/*
-    음성 인식 시작
-*/
+// ==========================================
+// 음성 인식
+// ==========================================
 
 function startListening() {
 
@@ -197,36 +129,24 @@ function startListening() {
         window.SpeechRecognition ||
         window.webkitSpeechRecognition;
 
-
     if (!SpeechRecognition) {
 
         document.getElementById("status").innerText =
             "이 브라우저에서는 음성 인식을 지원하지 않습니다.";
 
         return;
-
     }
 
+    recognition = new SpeechRecognition();
 
-    recognition =
-        new SpeechRecognition();
+    recognition.lang = "ko-KR";
 
+    recognition.continuous = false;
 
-    recognition.lang =
-        "ko-KR";
-
-
-    recognition.continuous =
-        false;
-
-
-    recognition.interimResults =
-        false;
-
+    recognition.interimResults = false;
 
     document.getElementById("status").innerText =
         "PRIME이 듣고 있습니다...";
-
 
     try {
 
@@ -238,129 +158,98 @@ function startListening() {
 
     }
 
+    recognition.onresult = function(event) {
 
-    recognition.onresult =
-        function(event) {
+        const text =
+            event.results[0][0].transcript;
 
-            const text =
-                event.results[0][0].transcript;
+        document.getElementById("question").value =
+            text;
 
+        document.getElementById("status").innerText =
+            "질문을 확인했습니다.";
 
-            document.getElementById("question").value =
-                text;
+        askPrime();
 
+    };
 
-            document.getElementById("status").innerText =
-                "질문을 확인했습니다.";
+    recognition.onerror = function(event) {
 
+        document.getElementById("status").innerText =
+            "마이크 오류: " + event.error;
 
-            askPrime();
-
-        };
-
-
-    recognition.onerror =
-        function(event) {
-
-            document.getElementById("status").innerText =
-                "마이크 오류: " + event.error;
-
-        };
-
+    };
 }
 
 
-/*
-    PRIME에게 질문
-*/
+// ==========================================
+// PRIME에게 질문
+// ==========================================
 
 async function askPrime() {
 
     const question =
-        document.getElementById("question")
-        .value
-        .trim();
-
+        document.getElementById("question").value.trim();
 
     if (!question) {
         return;
     }
 
-
     document.getElementById("answer").innerText =
         "PRIME: 생각 중...";
-
 
     document.getElementById("status").innerText =
         "PRIME이 답변을 준비하고 있습니다...";
 
-
     try {
 
-        const response =
-            await fetch(
-                "/ask",
-                {
-                    method: "POST",
+        const response = await fetch(
+            "/ask",
+            {
+                method: "POST",
 
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
+                headers: {
+                    "Content-Type": "application/json"
+                },
 
-                    body: JSON.stringify({
-                        question: question
-                    })
-                }
-            );
+                body: JSON.stringify({
+                    question: question
+                })
+            }
+        );
 
+        const data = await response.json();
 
-        const data =
-            await response.json();
-
-
-        lastAnswer =
-            data.answer;
-
+        lastAnswer = data.answer;
 
         document.getElementById("answer").innerText =
             "PRIME: " + lastAnswer;
 
-
         document.getElementById("status").innerText =
             "PRIME 온라인";
 
-
-        /*
-            답변이 나오면
-            자동으로 음성 출력
-        */
-
+        // 답변이 나오면 자동으로 AI 음성 재생
         speakAnswer();
-
 
     } catch (error) {
 
         console.error(error);
 
-
         document.getElementById("answer").innerText =
             "PRIME: 서버 연결 오류";
-
 
         document.getElementById("status").innerText =
             "오류가 발생했습니다.";
 
     }
-
 }
 
 
-/*
-    PRIME 음성 출력
-*/
+// ==========================================
+// AI 음성 재생
+// ==========================================
 
-function speakAnswer() {
+async function speakAnswer() {
 
     if (!lastAnswer) {
 
@@ -368,145 +257,104 @@ function speakAnswer() {
             "먼저 PRIME에게 질문해주세요.";
 
         return;
-
     }
 
-
-    if (!("speechSynthesis" in window)) {
+    try {
 
         document.getElementById("status").innerText =
-            "이 브라우저에서는 음성 출력을 지원하지 않습니다.";
+            "PRIME 음성을 생성하고 있습니다...";
 
-        return;
+        if (currentAudio) {
 
-    }
+            currentAudio.pause();
 
+            currentAudio.currentTime = 0;
 
-    /*
-        기존 음성을 먼저 정지
-    */
+        }
 
-    window.speechSynthesis.cancel();
+        const response = await fetch(
+            "/speak",
+            {
+                method: "POST",
 
+                headers: {
+                    "Content-Type": "application/json"
+                },
 
-    /*
-        음성 목록 다시 확인
-    */
-
-    loadVoices();
-
-
-    /*
-        음성 객체 생성
-    */
-
-    const speech =
-        new SpeechSynthesisUtterance(
-            lastAnswer
+                body: JSON.stringify({
+                    text: lastAnswer
+                })
+            }
         );
 
+        if (!response.ok) {
 
-    speech.lang =
-        "ko-KR";
+            throw new Error("음성 생성 실패");
 
+        }
 
-    /*
-        JARVIS 스타일
-        너무 느리지 않게 설정
-    */
+        const audioBlob =
+            await response.blob();
 
-    speech.rate =
-        1.0;
+        const audioURL =
+            URL.createObjectURL(audioBlob);
 
+        currentAudio =
+            new Audio(audioURL);
 
-    /*
-        너무 높은 음성을 피하기 위한 설정
-    */
+        currentAudio.volume = 1.0;
 
-    speech.pitch =
-        0.9;
-
-
-    speech.volume =
-        1.0;
-
-
-    /*
-        선택된 한국어 음성이 있으면 사용
-    */
-
-    if (selectedVoice) {
-
-        speech.voice =
-            selectedVoice;
-
-    }
-
-
-    speech.onstart =
-        function() {
+        currentAudio.onplay = function() {
 
             document.getElementById("status").innerText =
                 "PRIME이 말하고 있습니다...";
 
         };
 
-
-    speech.onend =
-        function() {
+        currentAudio.onended = function() {
 
             document.getElementById("status").innerText =
                 "PRIME 온라인";
 
+            URL.revokeObjectURL(audioURL);
+
         };
 
+        currentAudio.onerror = function(error) {
 
-    speech.onerror =
-        function(error) {
-
-            console.log(
-                "Speech error:",
+            console.error(
+                "Audio error:",
                 error
             );
 
-
             document.getElementById("status").innerText =
-                "음성 출력 오류";
+                "음성 재생 오류";
 
         };
 
+        await currentAudio.play();
 
-    /*
-        음성 출력
-    */
+    } catch (error) {
 
-    window.speechSynthesis.speak(
-        speech
-    );
+        console.error(error);
 
-}
-
-
-/*
-    페이지가 열릴 때
-    음성 목록 확인
-*/
-
-window.addEventListener(
-    "load",
-    function() {
-
-        loadVoices();
+        document.getElementById("status").innerText =
+            "AI 음성을 재생할 수 없습니다.";
 
     }
-);
+}
 
 </script>
 
 </body>
+
 </html>
 """
 
+
+# ==========================================
+# 메인 화면
+# ==========================================
 
 @app.route("/")
 def home():
@@ -514,15 +362,22 @@ def home():
     return render_template_string(HTML)
 
 
+# ==========================================
+# PRIME 답변
+# ==========================================
+
 @app.route("/ask", methods=["POST"])
 def ask():
 
-    data = request.json
+    data = request.get_json(silent=True) or {}
 
-    question = data.get(
-        "question",
-        ""
-    )
+    question = data.get("question", "").strip()
+
+    if not question:
+
+        return jsonify({
+            "answer": "질문을 입력해주세요."
+        })
 
 
     try:
@@ -540,64 +395,124 @@ def ask():
 
 한국어로 대답합니다.
 
+고급 개인 AI 비서처럼 말하세요.
+
 음성으로 읽었을 때 자연스럽게 들리도록
-불필요한 기호와 지나치게 긴 문장을 피하세요.
+불필요한 특수문자와 이모티콘을 사용하지 마세요.
+
+지나치게 긴 문장은 피하세요.
 
 사용자가 이해하기 쉽게 설명하세요.
 """,
 
             input=question
-
         )
 
+        answer = response.output_text
 
         return jsonify({
-
-            "answer":
-                response.output_text
-
+            "answer": answer
         })
 
 
     except Exception as e:
 
-        print(
-            "ERROR:",
-            e
-        )
-
+        print("ASK ERROR:", e)
 
         return jsonify({
-
-            "answer":
-                "오류가 발생했습니다."
-
+            "answer": "오류가 발생했습니다."
         })
 
 
+# ==========================================
+# AI 음성 생성
+# ==========================================
+
+@app.route("/speak", methods=["POST"])
+def speak():
+
+    data = request.get_json(silent=True) or {}
+
+    text = data.get("text", "").strip()
+
+    if not text:
+
+        return jsonify({
+            "error": "음성으로 변환할 텍스트가 없습니다."
+        }), 400
+
+
+    try:
+
+        speech = client.audio.speech.create(
+
+            model="gpt-4o-mini-tts",
+
+            voice="onyx",
+
+            input=text,
+
+            instructions="""
+한국어로 말하세요.
+
+차분하고 낮은 느낌의 성숙한 남성 AI 비서처럼 말하세요.
+
+전문적이고 자신감 있게 말하세요.
+
+로봇처럼 끊어서 말하지 말고
+자연스럽게 연결해서 말하세요.
+
+감정을 과하게 넣지 마세요.
+
+한국어 발음과 문장 사이의 호흡을 자연스럽게 유지하세요.
+""",
+
+            response_format="mp3",
+
+            speed=0.95
+        )
+
+
+        audio_data = speech.read()
+
+
+        return send_file(
+
+            io.BytesIO(audio_data),
+
+            mimetype="audio/mpeg",
+
+            as_attachment=False,
+
+            download_name="prime_voice.mp3"
+
+        )
+
+
+    except Exception as e:
+
+        print("TTS ERROR:", e)
+
+        return jsonify({
+            "error": "AI 음성 생성에 실패했습니다."
+        }), 500
+
+
+# ==========================================
+# 서버 실행
+# ==========================================
+
 if __name__ == "__main__":
 
-    print(
-        "=============================="
-    )
+    print("==============================")
 
-    print(
-        " PRIME V6 SERVER"
-    )
+    print(" PRIME V6 SERVER")
 
-    print(
-        "=============================="
-    )
+    print("==============================")
 
-    print(
-        "PRIME 서버가 시작되었습니다."
-    )
-
+    print("PRIME 서버가 시작되었습니다.")
 
     app.run(
-
         host="0.0.0.0",
-
         port=5000
-
     )
