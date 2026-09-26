@@ -3,6 +3,7 @@ import re
 import ast
 import operator
 import requests
+import xml.etree.ElementTree as ET
 from urllib.parse import quote_plus
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -84,6 +85,43 @@ def web_search(query):
     if len(query) > 300:
         query = query[:300]
 
+    # 뉴스 검색은 Google News RSS를 사용한다.
+    if any(word in query for word in ["뉴스", "기사", "속보", "시사"]):
+        try:
+            params = {
+                "q": query,
+                "hl": "ko",
+                "gl": "KR",
+                "ceid": "KR:ko",
+            }
+            r = requests.get(
+                "https://news.google.com/rss/search",
+                params=params,
+                headers={"User-Agent": "PRIME/14.1"},
+                timeout=6,
+            )
+            r.raise_for_status()
+            root = ET.fromstring(r.content)
+            items = root.findall("./channel/item")[:5]
+            results = []
+            for item in items:
+                title = (item.findtext("title") or "").strip()
+                link = (item.findtext("link") or "").strip()
+                pub = (item.findtext("pubDate") or "").strip()
+                if title and link:
+                    results.append((title, link, pub))
+            if results:
+                lines = [f"웹 검색 결과: {query}"]
+                for i, (title, link, pub) in enumerate(results, 1):
+                    lines.append(f"{i}. {title}")
+                    if pub:
+                        lines.append(f"시간: {pub}")
+                    lines.append(f"링크: {link}")
+                return "\n".join(lines)
+        except (requests.RequestException, ET.ParseError):
+            pass
+
+    # 일반 검색은 DuckDuckGo Instant Answer API를 사용한다.
     params = {
         "q": query,
         "format": "json",
@@ -91,14 +129,18 @@ def web_search(query):
         "no_redirect": "1",
         "skip_disambig": "1",
     }
-    r = requests.get(
-        "https://api.duckduckgo.com/",
-        params=params,
-        headers={"User-Agent": "PRIME/14.0"},
-        timeout=15,
-    )
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.get(
+            "https://api.duckduckgo.com/",
+            params=params,
+            headers={"User-Agent": "PRIME/14.1"},
+            timeout=6,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except (requests.RequestException, ValueError):
+        search_url = "https://duckduckgo.com/?q=" + quote_plus(query)
+        return f"검색 서버 응답이 지연되어 검색 페이지를 엽니다.\n검색 페이지: {search_url}"
 
     answer = data.get("Answer")
     abstract = data.get("AbstractText")
@@ -287,8 +329,8 @@ def ask():
         if is_date_question(question):return jsonify({"answer":make_date_answer()})
         search_query = extract_search_query(question)
         if search_query:
-            return jsonify({"answer":web_search(search_query)})
-        return jsonify({"answer":ask_vireonix(question)})
+            return jsonify({"answer": web_search(search_query)})
+        return jsonify({"answer": ask_vireonix(question)})
     except requests.HTTPError as error:
         if error.response is not None:
             try:detail=error.response.json()
