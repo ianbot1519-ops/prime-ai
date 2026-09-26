@@ -67,6 +67,85 @@ def is_date_question(q):
     return any(x in q for x in ["오늘 날짜", "오늘이 며칠", "오늘 며칠", "몇 월 며칠", "몇월 며칠", "현재 날짜"])
 
 
+def extract_weather_city(q):
+    cleaned = re.sub(r"^(프라임[,\s]*)", "", q.strip(), flags=re.I)
+    weather_words = r"(?:날씨|기온|온도|비 와|비가 와|비올|비 올|눈 와|눈이 와|일기예보)"
+    if not re.search(weather_words, cleaned):
+        return None
+
+    # 지역이 명시된 경우: "서울 날씨", "부산 날씨 알려줘"
+    m = re.search(r"([가-힣A-Za-z0-9·\-\s]{1,30}?)(?:의|에서)?\s*" + weather_words, cleaned, flags=re.I)
+    if m:
+        city = m.group(1).strip(" ,?!.")
+        if city and city not in ["현재", "오늘", "지금"]:
+            return city
+
+    # "날씨 알려줘"처럼 지역이 없으면 서울을 기본값으로 사용
+    return "서울"
+
+def get_weather_by_city(city):
+    city = str(city).strip()
+    if len(city) > 50:
+        city = city[:50]
+
+    geo = requests.get(
+        "https://geocoding-api.open-meteo.com/v1/search",
+        params={"name": city, "count": 1, "language": "ko", "format": "json"},
+        timeout=5,
+    )
+    geo.raise_for_status()
+    geo_data = geo.json()
+    results = geo_data.get("results") or []
+    if not results:
+        raise ValueError(f"{city} 지역을 찾을 수 없습니다.")
+
+    place = results[0]
+    latitude = float(place["latitude"])
+    longitude = float(place["longitude"])
+    place_name = place.get("name", city)
+
+    forecast = requests.get(
+        "https://api.open-meteo.com/v1/forecast",
+        params={
+            "latitude": latitude,
+            "longitude": longitude,
+            "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+            "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+            "timezone": "Asia/Seoul",
+            "forecast_days": 1,
+        },
+        timeout=7,
+    )
+    forecast.raise_for_status()
+    data = forecast.json()
+
+    current = data["current"]
+    daily = data["daily"]
+    descriptions = {
+        0:"맑음", 1:"대체로 맑음", 2:"부분적으로 흐림", 3:"흐림",
+        45:"안개", 48:"짙은 안개",
+        51:"이슬비", 53:"이슬비", 55:"이슬비",
+        61:"비", 63:"비", 65:"강한 비",
+        71:"눈", 73:"눈", 75:"강한 눈",
+        80:"소나기", 81:"소나기", 82:"강한 소나기",
+        95:"뇌우", 96:"우박을 동반한 뇌우", 99:"우박을 동반한 뇌우",
+    }
+    desc = descriptions.get(current.get("weather_code"), "날씨 정보")
+    temp = current.get("temperature_2m")
+    feels = current.get("apparent_temperature")
+    wind = current.get("wind_speed_10m")
+    high = daily["temperature_2m_max"][0]
+    low = daily["temperature_2m_min"][0]
+    rain = daily.get("precipitation_probability_max", [None])[0]
+
+    rain_text = f"강수확률은 {rain}%입니다. " if rain is not None else ""
+    return (
+        f"{place_name}의 현재 날씨는 {desc}이고, 기온은 {temp}도입니다. "
+        f"체감온도는 {feels}도, 오늘 최고기온은 {high}도, 최저기온은 {low}도입니다. "
+        f"{rain_text}현재 풍속은 시속 {wind}킬로미터입니다."
+    )
+
+
 def extract_search_query(q):
     cleaned = re.sub(r"^(프라임[,\s]*)", "", q.strip(), flags=re.I)
 
@@ -277,6 +356,14 @@ def ask():
             except (ValueError, ZeroDivisionError):pass
         if is_time_question(question):return jsonify({"answer":make_time_answer()})
         if is_date_question(question):return jsonify({"answer":make_date_answer()})
+        weather_city = extract_weather_city(question)
+        if weather_city:
+            try:
+                return jsonify({"answer":get_weather_by_city(weather_city)})
+            except requests.RequestException:
+                return jsonify({"error":"날씨 서버에 연결하지 못했습니다."}),502
+            except ValueError as error:
+                return jsonify({"error":str(error)}),404
         search_query = extract_search_query(question)
         if search_query:
             result = web_search(search_query)
