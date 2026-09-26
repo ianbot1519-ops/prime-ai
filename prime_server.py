@@ -138,20 +138,54 @@ def get_weather_by_city(city):
         longitude = float(place["longitude"])
         place_name = place.get("name", city)
 
-    forecast = requests.get(
-        "https://api.open-meteo.com/v1/forecast",
-        params={
-            "latitude": latitude,
-            "longitude": longitude,
-            "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
-            "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
-            "timezone": "Asia/Seoul",
-            "forecast_days": 1,
-        },
-        timeout=7,
-    )
-    forecast.raise_for_status()
-    data = forecast.json()
+    forecast_params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+        "timezone": "Asia/Seoul",
+        "forecast_days": 1,
+    }
+
+    try:
+        forecast = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params=forecast_params,
+            timeout=5,
+        )
+        forecast.raise_for_status()
+        data = forecast.json()
+    except requests.RequestException:
+        # Open-Meteo가 Render에서 일시적으로 연결되지 않을 경우 wttr.in으로 재시도한다.
+        fallback = requests.get(
+            "https://wttr.in/" + quote_plus(place_name) + "?format=j1",
+            headers={"User-Agent": "PRIME-weather/15.3"},
+            timeout=8,
+        )
+        fallback.raise_for_status()
+        wd = fallback.json()
+        current = (wd.get("current_condition") or [{}])[0]
+        day = (wd.get("weather") or [{}])[0]
+        desc = ((current.get("weatherDesc") or [{"value": "날씨 정보"}])[0]).get("value", "날씨 정보")
+        temp = current.get("temp_C")
+        feels = current.get("FeelsLikeC")
+        wind = current.get("windspeedKmph")
+        high = day.get("maxtempC")
+        low = day.get("mintempC")
+        rain = None
+        hourly = day.get("hourly") or []
+        chances = [h.get("chanceofrain") for h in hourly if h.get("chanceofrain") is not None]
+        if chances:
+            try:
+                rain = max(int(x) for x in chances)
+            except (TypeError, ValueError):
+                rain = None
+        rain_text = f"강수확률은 {rain}%입니다. " if rain is not None else ""
+        return (
+            f"{place_name}의 현재 날씨는 {desc}이고, 기온은 {temp}도입니다. "
+            f"체감온도는 {feels}도, 오늘 최고기온은 {high}도, 최저기온은 {low}도입니다. "
+            f"{rain_text}현재 풍속은 시속 {wind}킬로미터입니다."
+        )
 
     current = data["current"]
     daily = data["daily"]
