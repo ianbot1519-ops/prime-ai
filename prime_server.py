@@ -82,108 +82,23 @@ def extract_search_query(q):
     return None
 
 def web_search(query):
+    """외부 검색 서버를 PRIME의 Flask 워커가 직접 기다리지 않도록 검색 주소만 만든다."""
+    query = str(query).strip()
     if len(query) > 300:
         query = query[:300]
 
-    # 뉴스 검색은 Google News RSS를 사용한다.
     if any(word in query for word in ["뉴스", "기사", "속보", "시사"]):
-        try:
-            params = {
-                "q": query,
-                "hl": "ko",
-                "gl": "KR",
-                "ceid": "KR:ko",
-            }
-            r = requests.get(
-                "https://news.google.com/rss/search",
-                params=params,
-                headers={"User-Agent": "PRIME/14.1"},
-                timeout=6,
-            )
-            r.raise_for_status()
-            root = ET.fromstring(r.content)
-            items = root.findall("./channel/item")[:5]
-            results = []
-            for item in items:
-                title = (item.findtext("title") or "").strip()
-                link = (item.findtext("link") or "").strip()
-                pub = (item.findtext("pubDate") or "").strip()
-                if title and link:
-                    results.append((title, link, pub))
-            if results:
-                lines = [f"웹 검색 결과: {query}"]
-                for i, (title, link, pub) in enumerate(results, 1):
-                    lines.append(f"{i}. {title}")
-                    if pub:
-                        lines.append(f"시간: {pub}")
-                    lines.append(f"링크: {link}")
-                return "\n".join(lines)
-        except (requests.RequestException, ET.ParseError):
-            pass
+        url = "https://www.google.com/search?tbm=nws&q=" + quote_plus(query)
+        return {
+            "message": f"뉴스 검색을 준비했습니다: {query}",
+            "url": url
+        }
 
-    # 일반 검색은 DuckDuckGo Instant Answer API를 사용한다.
-    params = {
-        "q": query,
-        "format": "json",
-        "no_html": "1",
-        "no_redirect": "1",
-        "skip_disambig": "1",
+    url = "https://www.google.com/search?q=" + quote_plus(query)
+    return {
+        "message": f"웹 검색을 준비했습니다: {query}",
+        "url": url
     }
-    try:
-        r = requests.get(
-            "https://api.duckduckgo.com/",
-            params=params,
-            headers={"User-Agent": "PRIME/14.1"},
-            timeout=6,
-        )
-        r.raise_for_status()
-        data = r.json()
-    except (requests.RequestException, ValueError):
-        search_url = "https://duckduckgo.com/?q=" + quote_plus(query)
-        return f"검색 서버 응답이 지연되어 검색 페이지를 엽니다.\n검색 페이지: {search_url}"
-
-    answer = data.get("Answer")
-    abstract = data.get("AbstractText")
-    heading = data.get("Heading")
-    source = data.get("AbstractSource")
-    source_url = data.get("AbstractURL")
-
-    if isinstance(answer, str) and answer.strip():
-        text = answer.strip()
-        if source_url:
-            text += f"\n출처: {source_url}"
-        return text
-
-    if isinstance(abstract, str) and abstract.strip():
-        text = abstract.strip()
-        if source:
-            text += f"\n출처: {source}"
-        if source_url:
-            text += f"\n출처 링크: {source_url}"
-        return text
-
-    related = data.get("RelatedTopics") or []
-    results = []
-    for item in related:
-        if isinstance(item, dict) and item.get("Text") and item.get("FirstURL"):
-            results.append((item["Text"].strip(), item["FirstURL"]))
-        elif isinstance(item, dict) and isinstance(item.get("Topics"), list):
-            for sub in item["Topics"]:
-                if isinstance(sub, dict) and sub.get("Text") and sub.get("FirstURL"):
-                    results.append((sub["Text"].strip(), sub["FirstURL"]))
-        if len(results) >= 5:
-            break
-
-    if results:
-        lines = [f"검색 결과: {query}"]
-        if heading:
-            lines.append(f"관련 주제: {heading}")
-        for i, (title, url) in enumerate(results, 1):
-            lines.append(f"{i}. {title}\n링크: {url}")
-        return "\n".join(lines)
-
-    search_url = "https://duckduckgo.com/?q=" + quote_plus(query)
-    return f"검색 결과 요약을 찾지 못했습니다.\n검색 페이지: {search_url}"
 
 def safe_calculate(expression):
     expression = expression.strip()
@@ -264,7 +179,7 @@ video{width:100%;border-radius:12px;margin-top:8px;display:none}
 <body>
 <div class="wrap">
 <h1>PRIME</h1>
-<div class="sub">Personal Response &amp; Intelligence Management Engine V14</div>
+<div class="sub">Personal Response &amp; Intelligence Management Engine V14.2</div>
 <button onclick="startWake()">PRIME 호출 대기</button>
 <button onclick="askVoice()">말하기</button>
 <textarea id="question" placeholder="질문을 입력하세요"></textarea>
@@ -297,8 +212,8 @@ function makeRecognition(){const R=window.SpeechRecognition||window.webkitSpeech
 function startWake(){recognition=makeRecognition();if(!recognition)return;status("PRIME 호출을 기다리는 중");recognition.onresult=e=>{const t=e.results[0][0].transcript.trim().toLowerCase();if(t.includes("prime")||t.includes("프라임")){status("네. 말씀하세요.");speak("네. 말씀하세요.");setTimeout(askVoice,1200)}else status("PRIME이라고 말씀해주세요.")};recognition.onerror=()=>status("호출 대기가 종료되었습니다.");try{recognition.start()}catch(e){status("음성 인식을 시작할 수 없습니다.")}}
 function askVoice(){recognition=makeRecognition();if(!recognition)return;status("듣고 있습니다");recognition.onresult=e=>{const q=e.results[0][0].transcript;document.getElementById("question").value=q;ask(q)};recognition.onerror=()=>status("음성을 듣지 못했습니다.");try{recognition.start()}catch(e){status("음성 인식을 시작할 수 없습니다.")}}
 async function askText(){const q=document.getElementById("question").value.trim();if(q)await ask(q)}
-async function ask(question){status("PRIME 처리 중");try{const r=await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question})});const d=await r.json();const a=d.answer||d.error||"오류가 발생했습니다.";answer(a);status("완료");speak(a)}catch(e){status("서버 연결 오류");answer("서버에 연결하지 못했습니다.")}}
-async function calculate(){const q=document.getElementById("calc").value.trim();if(!q){status("계산식을 입력해주세요.");return}status("계산 중");try{const r=await fetch("/calculate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expression:q})});const d=await r.json();const a=d.answer||d.error||"계산할 수 없습니다.";answer(a);status(d.error?"오류":"완료");if(!d.error)speak(a)}catch(e){status("계산 서버 연결 오류")}}
+async function ask(question){status("PRIME 처리 중");try{const r=await fetch("/ask",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({question})});const d=await r.json();const a=d.answer||d.error||"오류가 발생했습니다.";answer(a);if(d.search_url){window.open(d.search_url,"_blank");status("검색 페이지를 열었습니다.");speak(a);return}status("완료");speak(a)}catch(e){status("서버 연결 오류");answer("서버에 연결하지 못했습니다.")}}
+async function webSearch(){const q=document.getElementById("search").value.trim();if(!q){status("검색어를 입력해주세요.");return}status("검색 페이지 준비 중");try{const r=await fetch("/search",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:q})});const d=await r.json();if(d.search_url){window.open(d.search_url,"_blank");answer(d.answer||"웹 검색을 준비했습니다.");status("검색 페이지를 열었습니다.");speak(d.answer||"웹 검색을 준비했습니다.");return}answer(d.error||"검색할 수 없습니다.");status("검색 오류")}catch(e){status("검색 서버 연결 오류");answer("검색 페이지를 열지 못했습니다.")}}\nasync function calculate(){const q=document.getElementById("calc").value.trim();if(!q){status("계산식을 입력해주세요.");return}status("계산 중");try{const r=await fetch("/calculate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expression:q})});const d=await r.json();const a=d.answer||d.error||"계산할 수 없습니다.";answer(a);status(d.error?"오류":"완료");if(!d.error)speak(a)}catch(e){status("계산 서버 연결 오류")}}
 async function getTime(){status("현재 시간을 확인하는 중");try{const d=await (await fetch("/time")).json();answer(d.answer||d.error);status("완료");speak(d.answer||d.error)}catch(e){status("시간 정보를 확인하지 못했습니다.")}}
 async function getDate(){status("오늘 날짜를 확인하는 중");try{const d=await (await fetch("/date")).json();answer(d.answer||d.error);status("완료");speak(d.answer||d.error)}catch(e){status("날짜 정보를 확인하지 못했습니다.")}}
 function getLocation(){return new Promise((resolve,reject)=>{if(!navigator.geolocation){reject("위치 기능을 사용할 수 없습니다.");return}navigator.geolocation.getCurrentPosition(p=>resolve(p.coords),()=>reject("위치 권한이 필요합니다."))})}
@@ -329,7 +244,11 @@ def ask():
         if is_date_question(question):return jsonify({"answer":make_date_answer()})
         search_query = extract_search_query(question)
         if search_query:
-            return jsonify({"answer": web_search(search_query)})
+            result = web_search(search_query)
+            return jsonify({
+                "answer": result["message"],
+                "search_url": result["url"]
+            })
         return jsonify({"answer": ask_vireonix(question)})
     except requests.HTTPError as error:
         if error.response is not None:
@@ -349,7 +268,11 @@ def search_route():
         query = str(data.get("query", "")).strip()
         if not query:
             return jsonify({"error": "검색어를 입력해주세요."}), 400
-        return jsonify({"answer": web_search(query)})
+        result = web_search(query)
+        return jsonify({
+            "answer": result["message"],
+            "search_url": result["url"]
+        })
     except requests.RequestException as error:
         return jsonify({"error": "웹 검색 서버 연결 오류: " + str(error)}), 502
     except Exception as error:
