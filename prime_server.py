@@ -9,6 +9,7 @@ from urllib.parse import quote_plus
 from zoneinfo import ZoneInfo
 
 import requests
+import time
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
@@ -44,6 +45,45 @@ WEATHER_CODES = {
     99: "우박을 동반한 천둥번개",
 }
 
+
+
+def call_vireonix_with_retry(messages, max_attempts=3, timeout_seconds=12):
+    """Bounded retry for transient Vireonix failures."""
+    payload = {"model": "auto", "messages": messages}
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            response = requests.post(
+                "https://vireonix.ai/v1/chat/completions",
+                json={"model": "auto", "messages": messages},
+                headers={"Content-Type": "application/json"},
+                timeout=12,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                choices = data.get("choices") or []
+                if choices:
+                    message = choices[0].get("message") or {}
+                    content = message.get("content")
+                    if isinstance(content, str) and content.strip():
+                        return content.strip()
+                last_error = RuntimeError("AI response did not contain usable text.")
+            elif response.status_code in (408, 425, 429, 500, 502, 503, 504):
+                last_error = RuntimeError(
+                    f"Transient AI server error: HTTP {response.status_code}"
+                )
+            else:
+                last_error = RuntimeError(
+                    f"AI server error: HTTP {response.status_code}"
+                )
+                break
+        except (requests.Timeout, requests.RequestException, ValueError) as exc:
+            last_error = exc
+
+        if attempt < max_attempts - 1:
+            time.sleep(0.7 * (attempt + 1))
+
+    raise last_error or RuntimeError("AI request failed.")
 
 def clean_ai_response(text):
     text = str(text or "")
@@ -377,7 +417,7 @@ try{
 </head>
 <body>
 <div class="wrap">
-<h1>PRIME</h1><div class="sub">Personal Response &amp; Intelligence Management Engine V16.5</div>
+<h1>PRIME</h1><div class="sub">Personal Response &amp; Intelligence Management Engine V16.6</div>
 <div id="screenLinkPanel" class="panel screen-link" style="display:none"><b>휴대폰 화면 연동</b><div id="screenLinkState">PRIME 화면이 이 휴대폰에 표시되고 있습니다.</div><button onclick="exitScreenLink()">화면 연동 해제</button></div>
 <div class="panel"><b>기기 제어</b><div id="deviceState" class="small">휴대폰을 PRIME의 제어 브리지로 사용할 수 있습니다.</div><button onclick="deviceShortcut('tv_on')">TV 켜기</button><button onclick="deviceShortcut('tv_off')">TV 끄기</button><button onclick="deviceShortcut('pc_on')">컴퓨터 켜기</button><button onclick="deviceShortcut('pc_off')">컴퓨터 끄기</button><button onclick="deviceShortcut('laptop_on')">노트북 켜기</button><button onclick="deviceShortcut('laptop_off')">노트북 끄기</button></div>
 <button onclick="startWake()">PRIME 호출 대기</button><button onclick="askVoice()">말하기</button>
@@ -457,7 +497,7 @@ def home():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "version": "16.5"})
+    return jsonify({"status": "ok", "version": "16.6"})
 
 
 @app.route("/ask", methods=["POST"])
@@ -592,3 +632,5 @@ def weather_route():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
+
+# PRIME V16.6 - AI stability/retry hardening release.
