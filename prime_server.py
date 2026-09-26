@@ -12,12 +12,14 @@ HTML = """
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>PRIME</title>
 
 <style>
+
 body {
     background: #050505;
     color: #00aaff;
@@ -68,6 +70,7 @@ button:hover {
     margin-top: 15px;
     color: #66ccff;
 }
+
 </style>
 
 </head>
@@ -76,7 +79,7 @@ button:hover {
 
 <h1>PRIME</h1>
 
-<p>PRIME V5 ONLINE</p>
+<p>PRIME V6 ONLINE</p>
 
 <input
     id="question"
@@ -108,7 +111,9 @@ let lastAnswer = "";
 let selectedVoice = null;
 
 
-/* 음성 목록 불러오기 */
+/*
+    음성 목록 확인
+*/
 
 function loadVoices() {
 
@@ -118,6 +123,10 @@ function loadVoices() {
     if (!voices || voices.length === 0) {
         return;
     }
+
+    /*
+        한국어 음성만 찾음
+    */
 
     const koreanVoices =
         voices.filter(function(voice) {
@@ -129,7 +138,9 @@ function loadVoices() {
         });
 
 
-    /* 남성으로 표시된 한국어 음성 우선 */
+    /*
+        우선적으로 남성으로 표시된 음성을 찾음
+    */
 
     selectedVoice =
         koreanVoices.find(function(voice) {
@@ -147,7 +158,10 @@ function loadVoices() {
         });
 
 
-    /* 남성 표시가 없으면 한국어 음성 사용 */
+    /*
+        남성 표시가 없으면
+        한국어 음성을 사용
+    */
 
     if (!selectedVoice &&
         koreanVoices.length > 0) {
@@ -160,7 +174,10 @@ function loadVoices() {
 }
 
 
-/* 아이폰에서 음성 목록이 늦게 로드되는 경우 */
+/*
+    아이폰에서 음성 목록이
+    늦게 나타나는 경우
+*/
 
 window.speechSynthesis.onvoiceschanged =
     function() {
@@ -170,7 +187,9 @@ window.speechSynthesis.onvoiceschanged =
     };
 
 
-/* 음성 인식 */
+/*
+    음성 인식 시작
+*/
 
 function startListening() {
 
@@ -251,7 +270,9 @@ function startListening() {
 }
 
 
-/* PRIME에게 질문 */
+/*
+    PRIME에게 질문
+*/
 
 async function askPrime() {
 
@@ -310,6 +331,14 @@ async function askPrime() {
             "PRIME 온라인";
 
 
+        /*
+            답변이 나오면
+            자동으로 음성 출력
+        */
+
+        speakAnswer();
+
+
     } catch (error) {
 
         console.error(error);
@@ -327,7 +356,9 @@ async function askPrime() {
 }
 
 
-/* PRIME 음성 출력 */
+/*
+    PRIME 음성 출력
+*/
 
 function speakAnswer() {
 
@@ -351,11 +382,23 @@ function speakAnswer() {
     }
 
 
+    /*
+        기존 음성을 먼저 정지
+    */
+
     window.speechSynthesis.cancel();
 
 
+    /*
+        음성 목록 다시 확인
+    */
+
     loadVoices();
 
+
+    /*
+        음성 객체 생성
+    */
 
     const speech =
         new SpeechSynthesisUtterance(
@@ -368,21 +411,29 @@ function speakAnswer() {
 
 
     /*
-       JARVIS 느낌을 위한 설정
-       조금 느리고 낮은 음성
+        JARVIS 스타일
+        너무 느리지 않게 설정
     */
 
     speech.rate =
-        0.88;
+        1.0;
 
+
+    /*
+        너무 높은 음성을 피하기 위한 설정
+    */
 
     speech.pitch =
-        0.72;
+        0.9;
 
 
     speech.volume =
         1.0;
 
+
+    /*
+        선택된 한국어 음성이 있으면 사용
+    */
 
     if (selectedVoice) {
 
@@ -425,6 +476,10 @@ function speakAnswer() {
         };
 
 
+    /*
+        음성 출력
+    */
+
     window.speechSynthesis.speak(
         speech
     );
@@ -432,7 +487,10 @@ function speakAnswer() {
 }
 
 
-/* 페이지가 열릴 때 음성 목록 확인 */
+/*
+    페이지가 열릴 때
+    음성 목록 확인
+*/
 
 window.addEventListener(
     "load",
@@ -482,6 +540,9 @@ def ask():
 
 한국어로 대답합니다.
 
+음성으로 읽었을 때 자연스럽게 들리도록
+불필요한 기호와 지나치게 긴 문장을 피하세요.
+
 사용자가 이해하기 쉽게 설명하세요.
 """,
 
@@ -521,7 +582,7 @@ if __name__ == "__main__":
     )
 
     print(
-        " PRIME V5 SERVER"
+        " PRIME V6 SERVER"
     )
 
     print(
